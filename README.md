@@ -59,7 +59,7 @@ Mods are an early-access Claude Code feature and their API can change between re
 
 | Docked beside the transcript | Inline above the prompt |
 | --- | --- |
-| <img src="docs/media/docked-pane.png" alt="The docked pane: main model vitals, architect timeline, permission gate, five agents as swimlanes, last-turn receipt and session log" width="380"> | <img src="docs/media/inline-mini.png" alt="The inline mini layout: the model, context gauge and session cost; the permission gate strip and totals; the last turn's duration, agents, edits, errors and cost" width="420"><br><br>On the main screen, without fullscreen, the pane is a summary of at most 8 rows; up to 3 agents join it when the session has subagents. |
+| <img src="docs/media/docked-pane.png" alt="The docked pane: main model vitals, architect timeline, permission gate, five agents as swimlanes, last-turn receipt and session log" width="380"> | <img src="docs/media/inline-mini.png" alt="The inline mini layout while Claude works: the model, context gauge and session cost, then the permission gate strip and totals" width="420"><br><br>On the main screen, without fullscreen, the pane is a summary of at most 8 rows. Up to 3 agents and the last turn join it as the session goes. |
 
 | Panel | Shows | From |
 | --- | --- | --- |
@@ -97,7 +97,7 @@ Focus the pane with `ctrl+x tab`, then:
 - **Main-screen terminal:** inline above the prompt, as the 8-row summary.
 - **Desktop app, VS Code, mobile:** the same panels, plus the agents drawn as an SVG time axis. VS Code and mobile can't animate, so connectors and clocks are static there.
 
-With `openOnStart`, the pane asks to open when a session starts; Claude Code seats an unrequested pane from 144 columns. Colours come from your Claude Code theme, so light, dark and colour-blind themes all read.
+With `openOnStart`, the pane opens by itself when a session starts, in terminals at least 144 columns wide; below that, `/flightdeck` opens it. Colours come from your Claude Code theme, so light, dark and colour-blind themes all read.
 
 ## What it can reach
 
@@ -162,7 +162,7 @@ In `/config`, or under `pluginConfigs["flightdeck"].options` in `settings.json`:
 | [`hooks/core.ts`](hooks/core.ts) | every reducer, formatter and layout rule as pure functions, so behaviour is testable directly |
 | [`hooks/rail.tsx`](hooks/rail.tsx), [`hooks/elapsed.tsx`](hooks/elapsed.tsx) | surface modules: animated connectors and live clocks that redraw only themselves, on the surface's own frame clock |
 | [`types/index.d.ts`](types/index.d.ts) | the state contract |
-| [`tests/`](tests) | 21 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
+| [`tests/`](tests) | 24 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
 
 State lives in `$.state` atoms. Every read is merged over defaults and a `schemaVersion` gates migrations, so state saved by an older version still reads after an update. New to mods? Start with [Claude Code mods](https://claude.com/blog/claude-code-mods) and [Getting started with Claude Code mods](https://claude.dev/blog/getting-started-with-claude-code-mods/).
 

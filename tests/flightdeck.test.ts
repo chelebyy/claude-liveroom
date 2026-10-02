@@ -23,6 +23,7 @@ import {
   parseConfig,
   prettyModel,
   promptLine,
+  handbackOf,
   receiptOf,
   recordCheck,
   redact,
@@ -64,6 +65,29 @@ test('an ask is settled by the call that follows: cleared if it ran, deny if ref
   const s = gateSummary(g)
   expect([s.rule, s.ask, s.cleared, s.deny, s.total]).toEqual([1, 0, 1, 1, 3])
   expect(g.recent.map(c => c.verdict)).toEqual(['cleared', 'deny', 'rule'])
+})
+
+test('the gate tallies a mixed run of verdicts per family', () => {
+  let g = DEFAULT_GATE
+  g = recordCheck(g, check('r1', 'rule', 'file'))
+  g = recordCheck(g, check('a1', 'ask', 'shell'))
+  g = recordCheck(g, check('a2', 'ask', 'shell'))
+  g = recordCheck(g, check('d1', 'deny', 'other'))
+  g = settleCheck(g, 'a1', true)
+  g = settleCheck(g, 'a2', false)
+  expect(g.totals.file).toEqual({ rule: 1, ask: 0, cleared: 0, deny: 0 })
+  expect(g.totals.shell).toEqual({ rule: 0, ask: 0, cleared: 1, deny: 1 })
+  expect(g.totals.other.deny).toBe(1)
+  expect(gateSummary(g)).toEqual({ rule: 1, ask: 0, cleared: 1, deny: 2, total: 4 })
+  expect(gateSummary(DEFAULT_GATE).total).toBe(0)
+})
+
+test('a v1-shaped gate reads as empty, then records normally', () => {
+  const g = normalizeGate({ file: { allow: 3, ask: 1, deny: 0, cleared: 2 }, shell: null })
+  expect(gateSummary(g).total).toBe(0)
+  const next = recordCheck(g, check('n1', 'rule', 'file'))
+  expect(next.totals.file.rule).toBe(1)
+  expect(next.recent.length).toBe(1)
 })
 
 test('a pending ask is never trimmed out before it settles', () => {
@@ -143,6 +167,10 @@ test('layout math: lanes share one axis, the log gets 4-8 rows, the legend never
   expect(prettyModel('z-ai/glm-5.3-flash-with-a-long-name')).toBe('z-ai/glm-5.3-flash-wi…')
   expect(prettyModel('')).toBe('—')
   expect(promptLine('fix the parser')).toEqual({ who: 'you', text: 'fix the parser' })
+  const hb = '<agent-message from="a1940a83d593229d5">\n[Subagent hand-back] The text below is the final report. The report follows:\n  Add gate tests: redaction edge cases.\n  - more\n</agent-message>'
+  expect(handbackOf(hb)).toEqual({ from: 'a1940a83d593229d5', body: 'Add gate tests: redaction edge cases.' })
+  expect(handbackOf('<agent-message from="x">\nPlain report line\n</agent-message>')).toEqual({ from: 'x', body: 'Plain report line' })
+  expect(handbackOf('fix the parser')).toBe(null)
   expect(promptLine('<agent-message from="a1492260715f3be7b"> [Subagent hand-back]')).toEqual({ who: 'engine', text: 'agent message from a1492260' })
   expect(receiptOf({ ...DEFAULT_TURN, costAtStart: 5 }, { durationMs: 1, agentsSince: 0, costNow: 5, reason: 'answer' }).costDelta).toBe(null)
   expect(titleLines('Write tinyqueue test suite', 13, 16)).toEqual(['Write', 'tinyqueue test…'])
@@ -371,4 +399,19 @@ test('cards that cannot fit the pane fall back to lanes', async ($, on) => {
   expect(await wide.find({ text: /━/ })).toBeUndefined() // three cards fit in 70
   expect(await wide.find({ text: /task gamma/ })).toBeDefined()
   await wide.unmount()
+})
+
+test("a background architect's advice is read from its hand-back", async ($, on) => {
+  engine(on)
+  on('agent.spawn', () => ({ model: 'claude-fable-5-1', agentId: 'fab1' }))
+  await $.turn.start({ text: 'review it', turnId: 'H1' })
+  await $.agent.spawn(spawn('fable-advisor:fable-advisor', 'final review'))
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'H1', agentId: 'fab1', reason: 'answer' })
+  await $.turn.start({
+    text: '<agent-message from="fab1">\n[Subagent hand-back] The report follows:\n  Ship it after one more gate test.\n</agent-message>',
+    turnId: 'H2',
+  })
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /» Ship it after one more gate test\./ })).toBeDefined()
+  await ui.unmount()
 })

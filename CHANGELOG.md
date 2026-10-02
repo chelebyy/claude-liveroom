@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+
+- The main box shows the model and effort as soon as a request starts, not after the first one finishes.
+- Advice from a background architect agent (such as `fable-advisor`) now reaches the architect's `»` line; it arrives as a hand-back message, not as the agent's own answer.
+- New README media showing the Flightdeck header; plainer wording about opening on start.
+- More gate tests (24 in all).
+
 ## 0.3.0
 
 First public release.

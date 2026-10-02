@@ -46,6 +46,7 @@ import {
   parseConfig,
   prettyModel,
   promptLine,
+  handbackOf,
   receiptOf,
   recordCheck,
   settleCheck,
@@ -284,7 +285,15 @@ export const register: Register = (on, options) => {
     const [now, cost] = await Promise.all([$.clock.now(), costNow($)])
     await update($, turn, () => ({ ...DEFAULT_TURN, startedAt: now, costAtStart: cost }))
     await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), isRunning: true }))
-    if (e.text) {
+    // A background architect's answer arrives as a hand-back that opens the next turn, not as
+    // its own turn's answer: read the advice from there.
+    const back = e.text ? handbackOf(e.text) : null
+    const a = back ? await getArchitect($) : null
+    if (back && a && a.ids.includes(back.from)) {
+      const advice = shorten(back.body.replace(/^[#>*\s-]+/, ''), 160)
+      await update($, architect, x => ({ ...normalize(DEFAULT_ARCHITECT, x), lastAdvice: advice }))
+      await say($, cfg.architectLabel.toLowerCase(), `advice: ${shorten(advice, 60)}`, 'consult')
+    } else if (e.text) {
       const p = promptLine(e.text)
       await say($, p.who, p.text)
     }
@@ -292,14 +301,15 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.step', async function* ($, e, next) {
-    const result = yield* next(e)
+    // The main loop's model is known when its request starts; a long first request shouldn't read "—".
     if (!e.agentId) {
       await update($, main, m => {
         const x = normalize(DEFAULT_MAIN, m)
         return { ...x, model: e.model, effort: String(e.effort ?? x.effort), steps: x.steps + 1 }
       })
-      return result
+      return yield* next(e)
     }
+    const result = yield* next(e)
     const id = e.agentId
     const [cards, a] = await Promise.all([getCards($), getArchitect($)])
     if (cards.some(c => c.id === id)) {

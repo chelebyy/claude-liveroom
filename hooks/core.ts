@@ -466,4 +466,21 @@ export const promptLine = (text: string): { who: string; text: string } => {
   return { who: 'engine', text: shorten(`${tag.replace(/[-_]/g, ' ')}${from ? ` from ${from.slice(0, 8)}` : ''}`, 70) }
 }
 
+/**
+ * A subagent's hand-back message: who sent it and the first line of what it said. The report
+ * follows a framing header in the message; without one, the first line after the opening tag.
+ */
+export const handbackOf = (text: string): { from: string; body: string } | null => {
+  const from = /^\s*<agent-message\s+from="([^"]+)"/.exec(text)?.[1]
+  if (!from) return null
+  const afterHeader = text.split(/The report follows:\s*\n/)[1]
+  const rest = afterHeader ?? text.replace(/^\s*<agent-message[^>]*>/, '')
+  const body =
+    rest
+      .split('\n')
+      .map(l => l.trim())
+      .find(l => l && !l.startsWith('[') && !l.startsWith('<') && !l.startsWith('</')) ?? ''
+  return body ? { from, body } : null
+}
+
 export const elapsedOf = (c: AgentCard, now: number) => (c.endedAt ?? now) - c.spawnedAt
