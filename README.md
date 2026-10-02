@@ -41,6 +41,8 @@ claude --plugin-dir ./claude-flightdeck
 
 </details>
 
+The installer may say config options aren't set; the defaults are fine, and [`/config`](#configure) changes them.
+
 Mods are an early-access Claude Code feature and their API can change between releases. If something breaks, see [Troubleshooting](#troubleshooting).
 
 ## What you see
