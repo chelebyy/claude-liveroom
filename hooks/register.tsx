@@ -47,6 +47,7 @@ import {
   prettyModel,
   promptLine,
   handbackOf,
+  adviceLine,
   receiptOf,
   recordCheck,
   settleCheck,
@@ -169,6 +170,11 @@ async function consultEnded($: EngineInterface, cfg: Config, advice: string | nu
   await refreshStatus($, cfg)
 }
 
+async function noteAdvice($: EngineInterface, cfg: Config, advice: string) {
+  await update($, architect, x => ({ ...normalize(DEFAULT_ARCHITECT, x), lastAdvice: advice }))
+  await say($, cfg.architectLabel.toLowerCase(), `advice: ${shorten(advice, 60)}`, 'consult')
+}
+
 async function isArchitectType($: EngineInterface, cfg: Config, type: string) {
   return cfg.architect.test(type) || (await getRoster($)).architectTypes.includes(type)
 }
@@ -285,14 +291,13 @@ export const register: Register = (on, options) => {
     const [now, cost] = await Promise.all([$.clock.now(), costNow($)])
     await update($, turn, () => ({ ...DEFAULT_TURN, startedAt: now, costAtStart: cost }))
     await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), isRunning: true }))
-    // A background architect's answer arrives as a hand-back that opens the next turn, not as
-    // its own turn's answer: read the advice from there.
+    // A background architect's report reaches the main loop as the text opening this turn. The
+    // SubagentHandback tool call (in tool.call) normally carries it first; this is the fallback.
     const back = e.text ? handbackOf(e.text) : null
     const a = back ? await getArchitect($) : null
     if (back && a && a.ids.includes(back.from)) {
-      const advice = shorten(back.body.replace(/^[#>*\s-]+/, ''), 160)
-      await update($, architect, x => ({ ...normalize(DEFAULT_ARCHITECT, x), lastAdvice: advice }))
-      await say($, cfg.architectLabel.toLowerCase(), `advice: ${shorten(advice, 60)}`, 'consult')
+      const advice = adviceLine(back.body)
+      if (advice && advice !== a.lastAdvice) await noteAdvice($, cfg, advice)
     } else if (e.text) {
       const p = promptLine(e.text)
       await say($, p.who, p.text)
@@ -379,6 +384,16 @@ export const register: Register = (on, options) => {
     const g0 = await getGate($)
     const isSettled = settleCheck(g0, e.tool_use_id, didRun) !== g0
     if (isSettled) await update($, gate, g => settleCheck(normalizeGate(g), e.tool_use_id, didRun))
+    // A background agent hands its report back through this tool; an architect's report is its advice.
+    if (String(e.tool) === 'SubagentHandback') {
+      const message = (e as unknown as { message?: unknown }).message
+      const a = e.agentId ? await getArchitect($) : null
+      if (a && e.agentId && a.ids.includes(e.agentId) && typeof message === 'string') {
+        const advice = adviceLine(message)
+        if (advice && advice !== a.lastAdvice) await noteAdvice($, cfg, advice)
+      }
+      return ran
+    }
     if (e.tool === 'Agent') {
       if (isSettled) await refreshStatus($, cfg)
       return ran
