@@ -47,11 +47,7 @@ Mods are an early-access Claude Code feature and their API can change between re
 
 ## What you see
 
-<!--
-  Inline video: drag flightdeck-clip.mp4 into any issue or PR comment on this repo, copy the
-  https://github.com/user-attachments/assets/... URL GitHub gives you, and paste it alone on the
-  line below (no markdown around it). GitHub renders it as an inline player.
--->
+https://github.com/user-attachments/assets/9ad0fcc3-c81c-427a-a743-f7b6c49f5885
 
 <p align="center">
   <img src="docs/media/docked-session.png" alt="Claude Code in fullscreen with the Flightdeck pane docked beside the transcript" width="820">
