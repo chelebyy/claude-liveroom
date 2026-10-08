@@ -92,7 +92,8 @@ export type Roster = { architectTypes: string[] }
 
 // ---- Liveroom's additions (hooks/room)
 
-export type RunStatus = 'running' | 'done' | 'failed'
+/** `background`: the call returned but its work goes on where the pane can't see its end. */
+export type RunStatus = 'running' | 'background' | 'done' | 'failed'
 
 /** One piece of work handed to Codex: through the codex-rescue subagent or the codex CLI. */
 export type CodexRun = {
@@ -107,6 +108,8 @@ export type CodexRun = {
   endedAt: number | null
   /** Why the call breaks the delegation rule; null when it keeps it. */
   ruleNote: string | null
+  /** For a codex-rescue run, the subagent carrying it: its end ends the run. */
+  agentId: string | null
 }
 
 declare module 'claude-code' {

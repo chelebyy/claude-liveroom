@@ -3,12 +3,12 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import {
   cliRun,
-  codexCommand,
   codexEffort,
   endRun,
   flag,
   isReadOnly,
   meter,
+  parseCodexCli,
   pluginOfName,
   pluginOfTool,
   pushRun,
@@ -30,13 +30,23 @@ test('flags are read from prompts and command lines in every spelling', () => {
   expect(isReadOnly('Implement the parser')).toBe(false)
 })
 
-test('only real codex calls count, wherever they sit in a shell line', () => {
-  expect(codexCommand('cd repo && codex exec "do it"')).toBe('exec')
-  expect(codexCommand('codex e "short form"')).toBe('exec')
-  expect(codexCommand('codex review --base main')).toBe('review')
-  expect(codexCommand('echo codex exec')).toBe('exec') // a shell word boundary is all the scan sees
-  expect(codexCommand('mycodex exec x')).toBeNull()
-  expect(codexCommand('codex --version')).toBeNull()
+test('codex calls are read from their own option words, not their prompt or neighbours', () => {
+  expect(parseCodexCli('cd repo && codex exec "do it"')).toEqual({ kind: 'exec', model: null, effort: null })
+  expect(parseCodexCli('codex e "short form"')?.kind).toBe('exec')
+  expect(parseCodexCli('codex review --base main')?.kind).toBe('review')
+  // Global options before the subcommand.
+  expect(parseCodexCli('codex -m gpt-6-luna -c model_reasoning_effort=high exec "fix it"')).toEqual({ kind: 'exec', model: 'gpt-6-luna', effort: 'high' })
+  // Model as a config override, quoted the TOML way.
+  expect(parseCodexCli(`codex exec -c 'model="gpt-6.1-sol"' -c model_reasoning_effort="xhigh" go`)).toEqual({ kind: 'exec', model: 'gpt-6.1-sol', effort: 'xhigh' })
+  expect(parseCodexCli(`timeout 900 codex review --base main -c model='"gpt-6.1-sol"'`)).toEqual({ kind: 'review', model: 'gpt-6.1-sol', effort: null })
+  // The prompt is never an option.
+  expect(parseCodexCli('codex exec "Compare --model gpt-6-astra with alternatives"')?.model).toBeNull()
+  // Only a command in command position counts.
+  expect(parseCodexCli('echo codex exec')).toBeNull()
+  expect(parseCodexCli('mycodex exec x')).toBeNull()
+  expect(parseCodexCli('codex --version')).toBeNull()
+  expect(parseCodexCli('git diff | codex exec -m gpt-6-luna -')?.model).toBe('gpt-6-luna')
+  expect(parseCodexCli('FOO=1 /usr/local/bin/codex exec x')?.kind).toBe('exec')
 })
 
 test('the delegation rule: model and effort named; review picks its own', () => {
@@ -164,6 +174,55 @@ test('a subagent that silently inherits the main model gets ⚠ and a toast; a n
   expect(toasts[0]).toContain('general-purpose')
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /^⚠ $/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a codex-rescue run lives as long as its subagent, even when the call returns at launch', async ($, on) => {
+  engine(on)
+  on('tool.call', async (_$, e) => {
+    if (e.tool === 'Agent') {
+      // The engine starts the subagent, then the background call returns at once.
+      await $.agent.spawn({ ...spawn('codex:codex-rescue', 'rescue', 'claude-sonnet-5-5'), tool_use_id: String(e.tool_use_id) })
+    }
+    return { result: {}, text: 'launched' }
+  })
+  on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-opus-5-5', agentId: 'cx1' }))
+  await $.tool.call({ tool: 'Agent', subagent_type: 'codex:codex-rescue', prompt: '--model gpt-6.1-sol --effort xhigh fix', description: 'fix', tool_use_id: 'r1' } as never)
+  let ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /1 running · 1 total/ })).toBeDefined()
+  await ui.unmount()
+  await $.turn.complete({ answer: 'done', durationMs: 10, isAborted: false, turnId: 'X1', agentId: 'cx1', reason: 'answer' } as never)
+  ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /0 running · 1 total/ })).toBeDefined()
+  expect(await ui.find({ text: /^✓ $/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a background codex shell shows ◌ bg instead of a finished ✓', async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: {}, text: 'started in background' }))
+  await $.tool.call({ tool: 'Bash', command: 'codex exec -m gpt-6-luna -c model_reasoning_effort=low x', run_in_background: true, tool_use_id: 'bg1' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^◌ $/ })).toBeDefined()
+  expect(await ui.find({ text: /^bg$/ })).toBeDefined()
+  expect(await ui.find({ text: /^✓ $/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('delegationRule off: no ⚠ on cards or hand-offs, no toast', { options: { delegationRule: false } }, async ($, on) => {
+  engine(on)
+  const toasts: string[] = []
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-opus-5-5', agentId: `ag-${e.description}` }))
+  await $.agent.spawn(spawn('general-purpose', 'inherits'))
+  await $.tool.call({ tool: 'Bash', command: 'codex exec "no flags"', tool_use_id: 'n1' } as never)
+  expect(toasts.length).toBe(0)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /⚠/ })).toBeUndefined()
   await ui.unmount()
 })
 

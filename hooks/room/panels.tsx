@@ -25,6 +25,8 @@ export type RoomCtx = {
   C: Colors
   palette: Palette
   room: RoomView
+  /** `delegationRule`: show ⚠ on hand-offs that name no model or effort. */
+  isRuleOn: boolean
   /** Flightdeck's live clock: ticks on the surface's own frame clock while `endAt` is null. */
   clock: (key: string, since: number, endAt: number | null, color: string) => JSX.Element
 }
@@ -38,7 +40,9 @@ export function isRoomEmpty(p: RoomPanel, room: RoomView): boolean {
   return Object.keys(room.skills).length === 0 && Object.keys(room.plugins).length === 0
 }
 
-export const statusColorOf = (C: Colors, s: RunStatus) => (s === 'failed' ? C.warn : s === 'done' ? C.gate : C.agent)
+/** The cards' colours: running in the agent colour, done green, failed red; a background run dims. */
+export const statusColorOf = (C: Colors, s: RunStatus) =>
+  s === 'failed' ? C.warn : s === 'done' ? C.gate : s === 'background' ? C.dim : C.agent
 
 const KIND_LABEL: Record<CodexRun['kind'], string> = { rescue: 'rescue', consult: 'consult', exec: 'exec', review: 'review' }
 
@@ -87,9 +91,10 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
   }
 
   if (p === 'codex') {
-    const running = room.codex.filter(r => r.status === 'running').length
+    const running = room.codex.filter(r => r.status === 'running' || r.status === 'background').length
     const shown = room.codex.slice(-6)
-    const warned = room.codex.filter(r => r.ruleNote).length
+    const warned = x.isRuleOn ? room.codex.filter(r => r.ruleNote).length : 0
+    const isLive = (r: CodexRun) => r.status === 'running' || r.status === 'background'
     return frame(
       RC.codex,
       'CODEX · hand-offs',
@@ -99,17 +104,17 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
           <Box justifyContent="space-between">
             <Text wrap="truncate">
               <Text color={statusColorOf(C, r.status)}>{`${runGlyph(r.status)} `}</Text>
-              <Text color={r.status === 'running' ? C.text : C.dim}>{KIND_LABEL[r.kind]}</Text>
-              {r.ruleNote ? <Text color={C.amber}>{' ⚠'}</Text> : null}
+              <Text color={isLive(r) ? C.text : C.dim}>{KIND_LABEL[r.kind]}</Text>
+              {x.isRuleOn && r.ruleNote ? <Text color={C.amber}>{' ⚠'}</Text> : null}
             </Text>
             <Box flexShrink={0}>
               <Text>
-                <Text color={r.status === 'running' ? C.text : C.dim} bold={r.status === 'running'}>
+                <Text color={isLive(r) ? C.text : C.dim} bold={r.status === 'running'}>
                   {r.model ?? (r.kind === 'review' ? 'own model' : 'default')}
                 </Text>
                 {r.effort ? <Text color={C.dim}>{` · ${r.effort} `}</Text> : <Text> </Text>}
               </Text>
-              {x.clock(`codex-clock-${r.id}`, r.startedAt, r.endedAt, C.dim)}
+              {r.status === 'background' ? <Text color={C.dim}>bg</Text> : x.clock(`codex-clock-${r.id}`, r.startedAt, r.endedAt, C.dim)}
             </Box>
           </Box>
         )),

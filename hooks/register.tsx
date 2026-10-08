@@ -58,7 +58,7 @@ import {
 import type { Config, Panel } from './core'
 import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel } from './room/panels'
 import type { CodexRun } from './room/core'
-import { CODEX_RESCUE, bump, cliRun, endRun, pluginOfName, pluginOfTool, pushRun, rescueRun, ruleNote, stepKey } from './room/core'
+import { CODEX_RESCUE, backgroundRun, bump, cliRun, endRun, linkRun, pluginOfName, pluginOfTool, pushRun, rescueRun, stepKey } from './room/core'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
 
@@ -457,7 +457,7 @@ export const register: Register = (on, options) => {
 
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
-    await noteSpawn($, e, started)
+    await noteSpawn($, e, started, cfg.delegationRule)
     if (!e.parentAgentId) await noteMode($, e.permissionMode)
     if (started.deny !== undefined || !started.agentId) return started
     const id = started.agentId
@@ -487,6 +487,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
+    if (e.agentId) await endCodexAgent($, e.agentId, e.reason)
     const id = e.agentId
     const now = await $.clock.now()
     if (!id) {
@@ -947,7 +948,7 @@ export const register: Register = (on, options) => {
 
     const draw = (p: Panel, w: number) =>
       isRoomPanel(p)
-        ? drawRoom(p, w, { els, C, palette: cfg.palette, room, clock })
+        ? drawRoom(p, w, { els, C, palette: cfg.palette, room, isRuleOn: cfg.delegationRule, clock })
         : p === 'main'
         ? mainPanel(w)
         : p === 'architect'
@@ -1131,8 +1132,15 @@ export const register: Register = (on, options) => {
     if (type !== CODEX_RESCUE) return next(e)
     const run = rescueRun(e.tool_use_id, e.prompt ?? '', await $.clock.now())
     await update($, codex, runs => pushRun(runs, run))
+    // The run ends with the rescue subagent (turn.complete, linked in noteSpawn). A background
+    // spawn returns at once, so the call's return ends only a run no subagent picked up.
     return next(e).then(
-      async ran => (await endCodex($, run, ran), ran),
+      async ran => {
+        const isFailed = ran.deny !== undefined || ran.isError === true
+        const linked = (await read($, codex)).find(r => r.id === run.id)?.agentId
+        if (isFailed || !linked) await endCodex($, run, isFailed ? null : ran)
+        return ran
+      },
       async err => {
         await endCodex($, run, null)
         throw err
@@ -1146,7 +1154,13 @@ export const register: Register = (on, options) => {
     if (!run) return next(e)
     await update($, codex, runs => pushRun(runs, run))
     return next(e).then(
-      async ran => (await endCodex($, run, ran), ran),
+      async ran => {
+        // A background shell returns as it starts; its end is not an event the pane sees.
+        const isFailed = ran.deny !== undefined || ran.isError === true
+        if (e.run_in_background === true && !isFailed) await update($, codex, runs => backgroundRun(runs, run.id))
+        else await endCodex($, run, ran)
+        return ran
+      },
       async err => {
         await endCodex($, run, null)
         throw err
@@ -1206,20 +1220,35 @@ async function countPluginTool($: EngineInterface, tool: string) {
   if (owner) await update($, plugins, p => bump(p, owner))
 }
 
+/** A codex-rescue run ends with its subagent: done on an answer, failed otherwise. */
+async function endCodexAgent($: EngineInterface, agentId: string, reason: string) {
+  const runs = await read($, codex)
+  const run = runs.find(r => r.agentId === agentId && (r.status === 'running' || r.status === 'background'))
+  if (!run) return
+  const at = await $.clock.now()
+  await update($, codex, list => endRun(list, run.id, reason === 'answer' ? 'done' : 'failed', at))
+}
+
 /**
- * The delegation rule for subagents: one that names no model and silently runs on the main model
- * breaks it. One whose definition picks a model keeps it; forks always inherit, and codex-rescue
- * is judged by its Codex flags instead.
+ * Links a codex-rescue run to its subagent, and applies the delegation rule to every other spawn:
+ * a call that names no model and runs on the main model gets ⚠ and a toast. The pane cannot see
+ * the agent definition's own model, so the note says only what it can see: no model in the call,
+ * running on the main model. Forks always inherit and are left alone; `delegationRule: false`
+ * turns the check off.
  */
 async function noteSpawn(
   $: EngineInterface,
-  e: { model?: string; parentModel: string; subagentType: string; fork?: boolean },
+  e: { tool_use_id: string; model?: string; parentModel: string; subagentType: string; fork?: boolean },
   started: { model?: string; agentId?: string; deny?: string },
+  isRuleOn: boolean,
 ) {
-  if (e.fork || started.deny !== undefined || !started.agentId || e.subagentType === CODEX_RESCUE) return
-  if (e.model !== undefined || started.model !== e.parentModel) return
+  if (started.deny !== undefined || !started.agentId) return
   const id = started.agentId
-  const note = ruleNote(null, null, false) ?? 'no model given'
-  await update($, rules, r => ({ ...r, [id]: `${note}, runs on the main model` }))
-  $.ui.toast(`⚠ ${e.subagentType}: ${note}, inherited ${started.model}`)
+  if (e.subagentType === CODEX_RESCUE) {
+    await update($, codex, runs => linkRun(runs, e.tool_use_id, id))
+    return
+  }
+  if (!isRuleOn || e.fork || e.model !== undefined || started.model !== e.parentModel) return
+  await update($, rules, r => ({ ...r, [id]: 'no model in the call, runs on the main model' }))
+  $.ui.toast(`⚠ ${e.subagentType}: no model in the call, runs on ${started.model}`)
 }

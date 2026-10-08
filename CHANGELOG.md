@@ -7,6 +7,8 @@
 - **skills** panel: skills called, and plugins used through their skills, agent types and MCP tools.
 - Delegation rule: a subagent that names no model and silently runs on the main model gets ⚠ on its card and a toast. A Codex hand-off without a model or effort gets ⚠ in the codex panel.
 - The default `panels` setting lists the three new panels. A custom `panels` value keeps its own list.
+- `delegationRule` option (default on) turns the ⚠ checks off.
+- Codex calls are read from their own option words: global options before `exec` or `review` work, `-c model=…` is read, and a prompt that mentions `--model` is not mistaken for one. A codex-rescue run ends with its subagent, and a background `codex exec` shows `◌ bg`.
 
 ## Liveroom 0.1.0
 

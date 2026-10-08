@@ -122,6 +122,8 @@ What it keeps: short summaries (a tool name plus a path or command, with credent
 - **Per-agent context is the latest request's whole input** (uncached + cache read + cache write). It is labelled `ctx`, not cost: the API has no per-agent cost.
 - **Other loops** can't tell a workflow agent from a compaction fork; both are model loops no card claims.
 - **A background agent's first step** can arrive before its card exists, so its usage may show one step late.
+- **Codex runs end with what the pane can see.** A `codex:codex-rescue` run ends when the rescue subagent finishes, even if that agent left Codex working in the background. A `codex exec` started as a background shell shows `◌ bg`: its end is not an event the pane receives.
+- **The delegation rule sees the call, not the agent definition.** ⚠ means the spawn named no model and the agent runs on the main model. That holds even when the definition picked that same model itself. Turn it off with `delegationRule: false`.
 
 ## Configure
 
@@ -141,6 +143,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | `palette` | `theme` | `pastel` uses fixed colours tuned for dark terminals |
 | `openOnStart` | `true` | ask to open the pane when a session starts |
 | `statusLine` | `true` | context, running agents, consults and denials in the status line |
+| `delegationRule` | `true` | ⚠ and a toast for a subagent whose spawn names no model and that runs on the main model; ⚠ for a Codex hand-off without model or effort |
 
 ## Troubleshooting
 

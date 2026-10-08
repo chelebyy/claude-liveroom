@@ -19,11 +19,121 @@ export function codexEffort(text: string): string | null {
   return text.match(/model_reasoning_effort\s*=\s*["']?(\w+)/)?.[1] ?? flag(text, 'effort')
 }
 
-/** `codex exec …`, `codex e …` or `codex review …` anywhere in a shell command; null otherwise. */
-export function codexCommand(command: string): 'exec' | 'review' | null {
-  const match = command.match(/(^|[\s;&|(])codex(\.exe)?\s+(exec|e|review)\b/)
-  if (!match) return null
-  return match[3] === 'review' ? 'review' : 'exec'
+/**
+ * A shell line as words and separators: quotes removed, `;`, `&`, `|` and newlines kept apart.
+ * Enough to find a command and its options; not a full shell parser.
+ */
+export function shellWords(line: string): { word: string; isSep: boolean }[] {
+  const out: { word: string; isSep: boolean }[] = []
+  let word = ''
+  let hasWord = false
+  let quote: '"' | "'" | null = null
+  const flush = () => {
+    if (hasWord) out.push({ word, isSep: false })
+    word = ''
+    hasWord = false
+  }
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i] as string
+    if (quote) {
+      if (ch === quote) quote = null
+      else if (ch === '\\' && quote === '"' && i + 1 < line.length) word += line[++i]
+      else word += ch
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      hasWord = true
+    } else if (ch === '\\' && i + 1 < line.length) {
+      word += line[++i]
+      hasWord = true
+    } else if (ch === ';' || ch === '&' || ch === '|' || ch === '\n') {
+      flush()
+      out.push({ word: ch, isSep: true })
+    } else if (ch === ' ' || ch === '\t') {
+      flush()
+    } else {
+      word += ch
+      hasWord = true
+    }
+  }
+  flush()
+  return out
+}
+
+/** Codex options that take a value, globally or on exec and review. */
+const CODEX_VALUE_OPTS = new Set([
+  '-m', '--model', '-c', '--config', '-p', '--profile', '-C', '--cd', '-s', '--sandbox',
+  '-a', '--ask-for-approval', '-i', '--image', '--enable', '--disable', '--add-dir',
+  '-o', '--output-last-message', '--output-schema', '--color', '--local-provider', '--base', '--commit', '--title',
+])
+
+/** Words that run the command after them: `env`, `nohup`, `timeout 900` and the like. */
+const WRAPPERS = new Set(['env', 'nohup', 'time', 'sudo', 'command', 'exec', 'npx'])
+
+const unquote = (v: string) => v.replace(/^(["'])(.*)\1$/, '$2')
+
+/** One `-c key=value` override, or null when it sets another key. */
+const configValue = (kv: string, key: string): string | null => {
+  const at = kv.indexOf('=')
+  return at > 0 && kv.slice(0, at).trim() === key ? unquote(kv.slice(at + 1).trim()) || null : null
+}
+
+export type CodexCli = { kind: 'exec' | 'review'; model: string | null; effort: string | null }
+
+/**
+ * A codex exec or review call in a shell line, read from its own option words: `-m` / `--model` /
+ * `-c model=…` and `-c model_reasoning_effort=…`, before or after the subcommand. The prompt and
+ * any other command on the line are never read as options. Null when the line calls no such codex.
+ */
+export function parseCodexCli(line: string): CodexCli | null {
+  const words = shellWords(line)
+  for (let i = 0; i < words.length; i++) {
+    // Only a word in command position is a command: the start, after a separator, or after a wrapper.
+    let j = i
+    while (j < words.length && !words[j]!.isSep && (/^\w+=/.test(words[j]!.word) || WRAPPERS.has(words[j]!.word))) j++
+    if (j < words.length && words[j]!.word === 'timeout') {
+      j++
+      while (j < words.length && words[j]!.word.startsWith('-')) j++
+      j++ // the duration
+    }
+    const head = words[j]
+    const isCodex = head && !head.isSep && /(^|\/)codex(\.exe)?$/.test(head.word)
+    if (isCodex) {
+      let kind: CodexCli['kind'] | null | undefined
+      let model: string | null = null
+      let effort: string | null = null
+      let k = j + 1
+      let isOptionsDone = false
+      for (; k < words.length && !words[k]!.isSep; k++) {
+        const w = words[k]!.word
+        if (!isOptionsDone && w === '--') {
+          isOptionsDone = true
+          continue
+        }
+        if (!isOptionsDone && w.startsWith('-') && w.length > 1) {
+          const eq = w.indexOf('=')
+          const name = eq > 0 ? w.slice(0, eq) : w
+          const value = eq > 0 ? w.slice(eq + 1) : CODEX_VALUE_OPTS.has(name) ? (words[k + 1]?.isSep ? null : (words[++k]?.word ?? null)) : null
+          if (value === null) continue
+          if (name === '-m' || name === '--model') model = unquote(value)
+          else if (name === '-c' || name === '--config') {
+            model = configValue(value, 'model') ?? model
+            effort = configValue(value, 'model_reasoning_effort') ?? effort
+          }
+          continue
+        }
+        // The first plain word is the subcommand; later ones are its prompt or arguments.
+        if (kind === undefined) kind = w === 'exec' || w === 'e' ? 'exec' : w === 'review' ? 'review' : null
+      }
+      if (kind) return { kind, model, effort }
+      i = k
+      continue
+    }
+    // Skip to the next command on the line.
+    while (i < words.length && !words[i]!.isSep) i++
+  }
+  return null
 }
 
 /** Whether a task asks Codex only for an opinion: no file edits. */
@@ -64,30 +174,40 @@ export function rescueRun(id: string, prompt: string, at: number): CodexRun {
     startedAt: at,
     endedAt: null,
     ruleNote: ruleNote(model, effort, true),
+    agentId: null,
   }
 }
 
 /** A Codex run from a shell command; null when the command doesn't call Codex. */
 export function cliRun(id: string, command: string, at: number): CodexRun | null {
-  const kind = codexCommand(command)
-  if (!kind) return null
-  const model = flag(command, 'model', 'm')
-  const effort = codexEffort(command)
+  const cli = parseCodexCli(command)
+  if (!cli) return null
   return {
     id,
-    kind,
-    model,
-    effort,
+    kind: cli.kind,
+    model: cli.model,
+    effort: cli.effort,
     status: 'running',
     startedAt: at,
     endedAt: null,
-    ruleNote: kind === 'review' ? null : ruleNote(model, effort, true),
+    ruleNote: cli.kind === 'review' ? null : ruleNote(cli.model, cli.effort, true),
+    agentId: null,
   }
 }
 
 /** Ends a run; one that is already over keeps its first ending. */
-export function endRun(runs: readonly CodexRun[], id: string, status: Exclude<RunStatus, 'running'>, at: number): CodexRun[] {
-  return runs.map(r => (r.id === id && r.status === 'running' ? { ...r, status, endedAt: at } : r))
+export function endRun(runs: readonly CodexRun[], id: string, status: 'done' | 'failed', at: number): CodexRun[] {
+  return runs.map(r => (r.id === id && (r.status === 'running' || r.status === 'background') ? { ...r, status, endedAt: at } : r))
+}
+
+/** A run whose call returned while its work goes on unseen: a background shell. */
+export function backgroundRun(runs: readonly CodexRun[], id: string): CodexRun[] {
+  return runs.map(r => (r.id === id && r.status === 'running' ? { ...r, status: 'background' as const } : r))
+}
+
+/** Ties a codex-rescue run to the subagent its spawn started, so the subagent's end ends it. */
+export function linkRun(runs: readonly CodexRun[], id: string, agentId: string): CodexRun[] {
+  return runs.map(r => (r.id === id ? { ...r, agentId } : r))
 }
 
 /** The newest runs, oldest first, capped so a long session doesn't grow the state without end. */
@@ -120,7 +240,7 @@ export function meter(share: number, width: number): string {
   return '▰'.repeat(filled) + '▱'.repeat(width - filled)
 }
 
-/** The glyph a status draws with; shared with the agent cards. */
+/** The glyph a status draws with; running, done and failed match the agent cards. */
 export function runGlyph(status: RunStatus): string {
-  return status === 'running' ? '◐' : status === 'done' ? '✓' : '✗'
+  return status === 'running' ? '◐' : status === 'background' ? '◌' : status === 'done' ? '✓' : '✗'
 }

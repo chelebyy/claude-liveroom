@@ -106,6 +106,12 @@
       "description": "Show context, agents, consults and denials in the status line",
       "type": "boolean",
       "default": true
+    },
+    "delegationRule": {
+      "title": "Delegation rule",
+      "description": "Flag (⚠ and a toast) a subagent whose spawn names no model and that runs on the main model, and a Codex hand-off that names no model or effort",
+      "type": "boolean",
+      "default": true
     }
   }
 }

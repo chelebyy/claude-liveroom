@@ -108,6 +108,8 @@ export type Config = {
   palette: Palette
   openOnStart: boolean
   statusLine: boolean
+  /** Liveroom: flag subagents spawned with no model that run on the main model. */
+  delegationRule: boolean
 }
 
 const safeRegExp = (source: string, fallback: string) => {
@@ -141,6 +143,7 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => {
     palette: str('palette', 'theme') === 'pastel' ? 'pastel' : 'theme',
     openOnStart: bool('openOnStart', true),
     statusLine: bool('statusLine', true),
+    delegationRule: bool('delegationRule', true),
   }
 }
 
