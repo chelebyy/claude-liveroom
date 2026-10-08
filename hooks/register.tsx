@@ -56,6 +56,11 @@ import {
   stepLoop,
 } from './core'
 import type { Config, Panel } from './core'
+import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel } from './room/panels'
+import type { CodexRun } from './room/core'
+import { CODEX_RESCUE, bump, cliRun, endRun, pluginOfName, pluginOfTool, pushRun, rescueRun, ruleNote, stepKey } from './room/core'
+import type { RoomView } from './room/state'
+import { roomView } from './room/state'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -196,6 +201,7 @@ async function resetAll($: EngineInterface) {
   await update($, view, () => DEFAULT_VIEW)
   // The context gauge waits for the next measurement rather than showing the pre-clear fill.
   await update($, usage, x => ({ ...normalize(DEFAULT_USAGE, x), pct: null, tokens: null }))
+  await resetRoom($)
 }
 
 /** The session's cost read fresh, not from the last measurement: the receipt subtracts two of these. */
@@ -306,6 +312,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.step', async function* ($, e, next) {
+    await noteStep($, e.model, e.effort)
     // The main loop's model is known when its request starts; a long first request shouldn't read "—".
     if (!e.agentId) {
       await update($, main, m => {
@@ -377,6 +384,7 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', async ($, e, next) => {
+    await countPluginTool($, e.tool)
     callLoop.set(e.tool_use_id, e.agentId ?? null)
     const ran = await next(e).finally(() => callLoop.delete(e.tool_use_id))
     const didRun = ran.deny === undefined
@@ -449,6 +457,7 @@ export const register: Register = (on, options) => {
 
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
+    await noteSpawn($, e, started)
     if (!e.parentAgentId) await noteMode($, e.permissionMode)
     if (started.deny !== undefined || !started.agentId) return started
     const id = started.agentId
@@ -521,7 +530,7 @@ export const register: Register = (on, options) => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
     const hasClient = 'Client' in els
-    const [m, u, a, g, cards, lp, lines, t, r, v, now] = await Promise.all([
+    const [m, u, a, g, cards, lp, lines, t, r, v, now, room] = await Promise.all([
       getMain($),
       getUsage($),
       getArchitect($),
@@ -533,6 +542,7 @@ export const register: Register = (on, options) => {
       read($, receipt),
       getView($),
       $.clock.now(),
+      readRoom($),
     ])
     const W = Math.max(40, e.props.bodyColumns)
     const layout = v.layout ?? cfg.layout
@@ -553,6 +563,9 @@ export const register: Register = (on, options) => {
       loops: lp.length === 0,
       receipt: !m.isRunning && !r,
       log: false,
+      models: isRoomEmpty('models', room),
+      codex: isRoomEmpty('codex', room),
+      skills: isRoomEmpty('skills', room),
     }
     const panels = cfg.panels.filter(p => !isEmpty[p])
     const decider = m.mode === 'auto' ? 'classifier' : 'you'
@@ -780,7 +793,7 @@ export const register: Register = (on, options) => {
               const isViewed = viewed === c.id
               return (
                 <Box>
-                  <Text color={statusColor(c)} bold={isViewed}>{`${isViewed ? '▶' : glyph(c)} `}</Text>
+                  <Text color={room.rules[c.id] && !isViewed ? C.amber : statusColor(c)} bold={isViewed}>{`${isViewed ? '▶' : room.rules[c.id] ? '⚠' : glyph(c)} `}</Text>
                   <Box width={17}>
                     <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={shorten(cardTitle(c), 14)} onPress={expandOnPress(c.id)} />
                   </Box>
@@ -819,6 +832,7 @@ export const register: Register = (on, options) => {
                     {titleLines(cardTitle(c), cardW - 7, cardW - 4)[1]}
                   </Text>
                   <Text color={C.dim} wrap="truncate">
+                    {room.rules[c.id] ? <Text color={C.amber}>⚠ </Text> : null}
                     {sameModel ? c.type : `${c.type} · ${prettyModel(c.model)}`}
                   </Text>
                   <Text dimColor wrap="truncate">
@@ -932,7 +946,9 @@ export const register: Register = (on, options) => {
     )
 
     const draw = (p: Panel, w: number) =>
-      p === 'main'
+      isRoomPanel(p)
+        ? drawRoom(p, w, { els, C, palette: cfg.palette, room, clock })
+        : p === 'main'
         ? mainPanel(w)
         : p === 'architect'
           ? architectPanel(w)
@@ -1061,6 +1077,7 @@ export const register: Register = (on, options) => {
         { label: 'agents', color: C.agent },
         { label: cfg.gateLabel.toLowerCase(), color: C.gate },
         ...(showArchitect ? [{ label: cfg.architectLabel.toLowerCase(), color: C.arch }] : []),
+        ...(panels.includes('codex') ? [{ label: 'codex', color: ROOM_COLORS[cfg.palette].codex }] : []),
       ],
       W,
     )
@@ -1068,8 +1085,8 @@ export const register: Register = (on, options) => {
     const body = isWide ? (
       <Box flexDirection="column">
         <Box columnGap={2}>
-          {column(panels.filter(p => p === 'main' || p === 'architect' || p === 'gate'), colW)}
-          {column(panels.filter(p => p === 'agents' || p === 'loops' || p === 'receipt'), colW)}
+          {column(panels.filter(p => p === 'main' || p === 'models' || p === 'architect' || p === 'gate'), colW)}
+          {column(panels.filter(p => p === 'agents' || p === 'codex' || p === 'loops' || p === 'skills' || p === 'receipt'), colW)}
         </Box>
         {panels.includes('log') ? logPanel(W) : null}
       </Box>
@@ -1103,4 +1120,106 @@ export const register: Register = (on, options) => {
       </Box>
     )
   })
+
+  // ---------------------------------------------------------------- Liveroom: hooks with a matcher
+
+  // A codex-rescue spawn is a Codex hand-off; any plugin's agent type counts toward that plugin.
+  on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
+    const type = e.subagent_type ?? 'general-purpose'
+    const owner = pluginOfName(type)
+    if (owner) await update($, plugins, p => bump(p, owner))
+    if (type !== CODEX_RESCUE) return next(e)
+    const run = rescueRun(e.tool_use_id, e.prompt ?? '', await $.clock.now())
+    await update($, codex, runs => pushRun(runs, run))
+    return next(e).then(
+      async ran => (await endCodex($, run, ran), ran),
+      async err => {
+        await endCodex($, run, null)
+        throw err
+      },
+    )
+  })
+
+  // Codex called straight from the shell.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const run = cliRun(e.tool_use_id, e.command ?? '', await $.clock.now())
+    if (!run) return next(e)
+    await update($, codex, runs => pushRun(runs, run))
+    return next(e).then(
+      async ran => (await endCodex($, run, ran), ran),
+      async err => {
+        await endCodex($, run, null)
+        throw err
+      },
+    )
+  })
+
+  on('tool.call', { tool: 'Skill' }, async ($, e, next) => {
+    const name = e.skill ?? '?'
+    await update($, skills, k => bump(k, name))
+    const owner = pluginOfName(name)
+    if (owner) await update($, plugins, p => bump(p, owner))
+    return next(e)
+  })
+}
+
+// ---------------------------------------------------------------- Liveroom: state access
+// The engine follows $ and atoms only within the hooks module's own file, so these live here; the
+// logic they apply is in room/core.ts and the drawing in room/panels.tsx.
+
+const codex = atom({ plugin: 'liveroom', key: 'codex' } as const, [])
+const steps = atom({ plugin: 'liveroom', key: 'steps' } as const, {})
+const skills = atom({ plugin: 'liveroom', key: 'skills' } as const, {})
+const plugins = atom({ plugin: 'liveroom', key: 'plugins' } as const, {})
+const rules = atom({ plugin: 'liveroom', key: 'rules' } as const, {})
+
+/** Everything the room's panels draw from, read leniently. */
+async function readRoom($: EngineInterface): Promise<RoomView> {
+  const [c, s, k, p, r] = await Promise.all([read($, codex), read($, steps), read($, skills), read($, plugins), read($, rules)])
+  return roomView(c, s, k, p, r)
+}
+
+/** Clears the room with the rest of the pane, on `/clear` and `/liveroom reset`. */
+async function resetRoom($: EngineInterface) {
+  await update($, codex, () => [])
+  await update($, steps, () => ({}))
+  await update($, skills, () => ({}))
+  await update($, plugins, () => ({}))
+  await update($, rules, () => ({}))
+}
+
+/** A Codex run ends with its call: failed when refused, errored or thrown (`ran` null). */
+async function endCodex($: EngineInterface, run: CodexRun, ran: { deny?: string; isError?: boolean } | null) {
+  const at = await $.clock.now()
+  const status = ran === null || ran.deny !== undefined || ran.isError === true ? 'failed' : 'done'
+  await update($, codex, runs => endRun(runs, run.id, status, at))
+}
+
+/** Every model request: the main loop's and each subagent's, under the model and effort it ran on. */
+async function noteStep($: EngineInterface, model: string, effort: unknown) {
+  await update($, steps, s => bump(s, stepKey(model, effort)))
+}
+
+/** A plugin's MCP tool counts toward the plugin. */
+async function countPluginTool($: EngineInterface, tool: string) {
+  const owner = pluginOfTool(tool)
+  if (owner) await update($, plugins, p => bump(p, owner))
+}
+
+/**
+ * The delegation rule for subagents: one that names no model and silently runs on the main model
+ * breaks it. One whose definition picks a model keeps it; forks always inherit, and codex-rescue
+ * is judged by its Codex flags instead.
+ */
+async function noteSpawn(
+  $: EngineInterface,
+  e: { model?: string; parentModel: string; subagentType: string; fork?: boolean },
+  started: { model?: string; agentId?: string; deny?: string },
+) {
+  if (e.fork || started.deny !== undefined || !started.agentId || e.subagentType === CODEX_RESCUE) return
+  if (e.model !== undefined || started.model !== e.parentModel) return
+  const id = started.agentId
+  const note = ruleNote(null, null, false) ?? 'no model given'
+  await update($, rules, r => ({ ...r, [id]: `${note}, runs on the main model` }))
+  $.ui.toast(`⚠ ${e.subagentType}: ${note}, inherited ${started.model}`)
 }

@@ -90,6 +90,25 @@ export type View = { expanded: string | null; gateOpen: Bucket | null; layout: L
 
 export type Roster = { architectTypes: string[] }
 
+// ---- Liveroom's additions (hooks/room)
+
+export type RunStatus = 'running' | 'done' | 'failed'
+
+/** One piece of work handed to Codex: through the codex-rescue subagent or the codex CLI. */
+export type CodexRun = {
+  id: string
+  /** `rescue` writes files, `consult` is read-only; `exec` and `review` are direct CLI calls. */
+  kind: 'rescue' | 'consult' | 'exec' | 'review'
+  /** The model the call names; null when it leaves Codex's own default. */
+  model: string | null
+  effort: string | null
+  status: RunStatus
+  startedAt: number
+  endedAt: number | null
+  /** Why the call breaks the delegation rule; null when it keeps it. */
+  ruleNote: string | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'liveroom': {
@@ -105,6 +124,16 @@ declare module 'claude-code' {
       receipt: Receipt | null
       view: View
       roster: Roster
+      // Liveroom's additions (hooks/room).
+      /** Codex hand-offs: codex-rescue spawns and codex CLI calls. */
+      codex: CodexRun[]
+      /** Requests per `model · effort`, across the main loop and every subagent. */
+      steps: Record<string, number>
+      skills: Record<string, number>
+      /** Uses per plugin: its skills, its agent types and its MCP tools. */
+      plugins: Record<string, number>
+      /** Agent id → why its spawn broke the delegation rule. */
+      rules: Record<string, string>
     }
   }
 }

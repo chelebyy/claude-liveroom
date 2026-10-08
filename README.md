@@ -5,7 +5,7 @@
 
 **A Claude Code mod that puts a live room in your terminal**: context and cost, an advisor timeline, every permission check, and your subagents as cards or swimlanes. Every number comes from a real session event, and nothing leaves your machine.
 
-> Liveroom is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella, used under the MIT License. Everything it does today comes from Flightdeck 0.3.2; the screenshots below are still Flightdeck's. Coming next: Codex delegations, skill and plugin usage, model-rule checks, an agent-team room and a Turkish UI option.
+> Liveroom is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella, used under the MIT License. On top of Flightdeck 0.3.2 it adds the **models**, **codex** and **skills** panels and a ⚠ for subagents that silently inherit the main model; the screenshots below are still Flightdeck's. Coming next: an agent-team room and a Turkish UI option.
 
 <p align="center">
   <img src="docs/media/demo.gif" alt="Flightdeck during a live session: five audit subagents fan out as cards, switch to swimlanes and finish, while the permission gate fills with checks" width="520">
@@ -62,10 +62,13 @@ https://github.com/user-attachments/assets/9ad0fcc3-c81c-427a-a743-f7b6c49f5885
 | Panel | Shows | From |
 | --- | --- | --- |
 | **main** | model, effort, permission mode, request count; a context gauge with compactions (⟲); cost and the first two rate-limit windows when your plan reports them | `turn.step`, `session.measure`, `session.compact`, `$.session.usage()` |
+| **models** | requests per model and effort across the main loop and every subagent, ranked | `turn.step` |
 | **architect** | consults on a timeline, whether one is running, how long the last took; optionally the moment of each consult; the first line of a subagent architect's advice | a spawn of a matching agent type, or a matching server tool in the assistant's rows |
 | **gate** | one cell per permission check: green allowed without asking, blue decided by the auto-mode classifier or you and then run, amber pending, red ✗ denied, dim if made inside a subagent. Totals, and a drill-down per tool family with credentials masked | `tool.check`, settled by the `tool.call` around it |
 | **agents** | cards side by side while they fit: the task, type, live context and output tokens, steps, a running clock, `max_tokens` in red. Beyond that, swimlanes on one time axis | `agent.spawn`, `turn.step`, `tool.call`, `turn.complete` |
+| **codex** | work handed to Codex, through the `codex:codex-rescue` agent or `codex exec` / `codex review` in the shell: kind (rescue, consult, exec, review), model, effort, a running clock and the same status colours as the cards (◐ running, ✓ done, ✗ failed); ⚠ when a hand-off names no model or effort | `tool.call` on `Agent` and `Bash` |
 | **loops** | model loops that match no card: workflow agents, compactions, memory forks | `turn.step` ids no card claims |
+| **skills** | skills called, and plugins used through their skills, agent types and MCP tools | `tool.call` |
 | **receipt** | the running turn, or the last one: duration, agents, edits, errors, cost added | `turn.start`, `turn.complete` |
 | **log** | prompts, spawns, completions, consults, edits, errors and denials; filtered to one agent while you view its transcript | all of the above |
 
@@ -110,7 +113,7 @@ Liveroom only watches. Every hook passes its event on unchanged: it never denies
 | context, cost and rate-limit readings | `session.measure`, `$.session.usage()` |
 | advisor tool calls in the assistant's responses (their content is encrypted) | `session.append` |
 
-What it keeps: short summaries (a tool name plus a path or command, with credentials masked) in session state, which ends with the session. It makes **no** network requests, runs no processes, reads and writes no files, stores nothing across sessions, and calls no model. `claude plugin validate .` prints exactly what it hooks and calls.
+What it keeps: short summaries (a tool name plus a path or command, with credentials masked) and counters in session state, which ends with the session. It shows a toast when a subagent runs on the main model because its spawn named none. It makes **no** network requests, runs no processes, reads and writes no files, stores nothing across sessions, and calls no model. `claude plugin validate .` prints exactly what it hooks and calls.
 
 ## What is inferred, not measured
 
@@ -130,7 +133,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | `matchDescriptions` | `false` | also match agent descriptions, not just type names |
 | `architectLabel` | `ARCHITECT` | the architect's name in the pane |
 | `gateLabel` | `GATE` | the permission panel's name |
-| `panels` | `main,architect,gate,agents,loops,receipt,log` | which panels show, in order |
+| `panels` | `main,models,architect,gate,agents,codex,loops,skills,receipt,log` | which panels show, in order |
 | `layout` | `auto` | `mini`, `compact`, `wide`, or `auto` (mini inline, wide from 110 columns docked) |
 | `maxCards` | `3` | cards side by side before swimlanes (1–6); fewer if the pane is too narrow |
 | `motion` | `while-active` | `off` keeps connectors still |

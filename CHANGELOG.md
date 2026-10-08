@@ -1,5 +1,13 @@
 # Changelog
 
+## Liveroom 0.2.0
+
+- **codex** panel: work handed to Codex through the `codex:codex-rescue` agent or `codex exec` / `codex review`, with its kind, model, effort and a running clock. It uses the agent cards' status colours: ◐ running, ✓ done, ✗ failed.
+- **models** panel: requests per model and effort across the main loop and every subagent.
+- **skills** panel: skills called, and plugins used through their skills, agent types and MCP tools.
+- Delegation rule: a subagent that names no model and silently runs on the main model gets ⚠ on its card and a toast. A Codex hand-off without a model or effort gets ⚠ in the codex panel.
+- The default `panels` setting lists the three new panels. A custom `panels` value keeps its own list.
+
 ## Liveroom 0.1.0
 
 - Forked from Flightdeck 0.3.2 and renamed: the plugin is `liveroom`, the marketplace `claude-liveroom`, the command `/liveroom`, and settings live under `pluginConfigs["liveroom"]`.

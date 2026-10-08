@@ -91,8 +91,9 @@ export const normalizeLog = (stored: unknown): LogLine[] =>
 
 // ---------------------------------------------------------------- config
 
-export type Panel = 'main' | 'architect' | 'gate' | 'agents' | 'loops' | 'receipt' | 'log'
-const PANELS: readonly Panel[] = ['main', 'architect', 'gate', 'agents', 'loops', 'receipt', 'log']
+// models, codex and skills are Liveroom's (hooks/room).
+export type Panel = 'main' | 'models' | 'architect' | 'gate' | 'agents' | 'codex' | 'loops' | 'skills' | 'receipt' | 'log'
+const PANELS: readonly Panel[] = ['main', 'models', 'architect', 'gate', 'agents', 'codex', 'loops', 'skills', 'receipt', 'log']
 
 export type Config = {
   architect: RegExp
