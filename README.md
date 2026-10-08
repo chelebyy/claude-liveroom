@@ -1,9 +1,11 @@
-# Flightdeck
+# Liveroom
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code 2.1.287+](https://img.shields.io/badge/Claude%20Code-2.1.287%2B%20mod-d97757.svg)](https://claude.com/blog/claude-code-mods)
 
-**A Claude Code mod that puts a live agent dashboard in your terminal**: context and cost, an advisor timeline, every permission check, and your subagents as cards or swimlanes. Every number comes from a real session event, and nothing leaves your machine.
+**A Claude Code mod that puts a live room in your terminal**: context and cost, an advisor timeline, every permission check, and your subagents as cards or swimlanes. Every number comes from a real session event, and nothing leaves your machine.
+
+> Liveroom is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella, used under the MIT License. Everything it does today comes from Flightdeck 0.3.2; the screenshots below are still Flightdeck's. Coming next: Codex delegations, skill and plugin usage, model-rule checks, an agent-team room and a Turkish UI option.
 
 <p align="center">
   <img src="docs/media/demo.gif" alt="Flightdeck during a live session: five audit subagents fan out as cards, switch to swimlanes and finish, while the permission gate fills with checks" width="520">
@@ -18,25 +20,25 @@
 Inside Claude Code (2.1.287 or later):
 
 ```
-/plugin marketplace add scasella/claude-flightdeck
-/plugin install flightdeck@claude-flightdeck
+/plugin marketplace add chelebyy/claude-liveroom
+/plugin install liveroom@claude-liveroom
 /reload-plugins
-/flightdeck
+/liveroom
 ```
 
 <details>
 <summary><strong>From the terminal, or from a clone</strong></summary>
 
 ```sh
-claude plugin marketplace add scasella/claude-flightdeck
-claude plugin install flightdeck@claude-flightdeck
+claude plugin marketplace add chelebyy/claude-liveroom
+claude plugin install liveroom@claude-liveroom
 ```
 
 Or load it straight from a clone, for one session:
 
 ```sh
-git clone https://github.com/scasella/claude-flightdeck
-claude --plugin-dir ./claude-flightdeck
+git clone https://github.com/chelebyy/claude-liveroom
+claude --plugin-dir ./claude-liveroom
 ```
 
 </details>
@@ -73,10 +75,10 @@ Connectors animate only while work flows: a turn is running, an agent is running
 
 | Command | Does |
 | --- | --- |
-| `/flightdeck` | open the pane |
-| `/flightdeck close` | close it |
-| `/flightdeck reset` | clear agents, checks, consults, log and the turn (cost, rate limits and compactions stay) |
-| `/flightdeck layout auto\|compact\|wide\|mini` | override the layout for this session |
+| `/liveroom` | open the pane |
+| `/liveroom close` | close it |
+| `/liveroom reset` | clear agents, checks, consults, log and the turn (cost, rate limits and compactions stay) |
+| `/liveroom layout auto\|compact\|wide\|mini` | override the layout for this session |
 
 Focus the pane with `ctrl+x tab`, then:
 
@@ -93,11 +95,11 @@ Focus the pane with `ctrl+x tab`, then:
 - **Main-screen terminal:** inline above the prompt, as the 8-row summary.
 - **Desktop app, VS Code, mobile:** the same panels, plus the agents drawn as an SVG time axis. VS Code and mobile can't animate, so connectors and clocks are static there.
 
-With `openOnStart`, the pane opens by itself when a session starts, in terminals at least 144 columns wide; below that, `/flightdeck` opens it. Colours come from your Claude Code theme, so light, dark and colour-blind themes all read.
+With `openOnStart`, the pane opens by itself when a session starts, in terminals at least 144 columns wide; below that, `/liveroom` opens it. Colours come from your Claude Code theme, so light, dark and colour-blind themes all read.
 
 ## What it can reach
 
-Flightdeck only watches. Every hook passes its event on unchanged: it never denies, rewrites or delays a tool call, a prompt or a subagent.
+Liveroom only watches. Every hook passes its event on unchanged: it never denies, rewrites or delays a tool call, a prompt or a subagent.
 
 | It sees | Through |
 | --- | --- |
@@ -120,7 +122,7 @@ What it keeps: short summaries (a tool name plus a path or command, with credent
 
 ## Configure
 
-In `/config`, or under `pluginConfigs["flightdeck"].options` in `settings.json`:
+In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -140,15 +142,15 @@ In `/config`, or under `pluginConfigs["flightdeck"].options` in `settings.json`:
 ## Troubleshooting
 
 **The pane doesn't appear.**
-- Check `claude --version` is 2.1.287 or later, then run `/reload-plugins` and `/flightdeck`.
-- Below 144 columns, Claude Code won't seat a pane nobody asked for; `/flightdeck` opens it at any width.
-- Look in the transcript for a dim line starting `flightdeck:`. It names the hook that failed or the reason the pane was refused. Please [open an issue](https://github.com/scasella/claude-flightdeck/issues) with it.
+- Check `claude --version` is 2.1.287 or later, then run `/reload-plugins` and `/liveroom`.
+- Below 144 columns, Claude Code won't seat a pane nobody asked for; `/liveroom` opens it at any width.
+- Look in the transcript for a dim line starting `liveroom:`. It names the hook that failed or the reason the pane was refused. Please [open an issue](https://github.com/chelebyy/claude-liveroom/issues) with it.
 
 **Colours look wrong.** Set `palette` to `pastel` in `/config`.
 
 **It's too much motion.** Set `motion` to `off`.
 
-**Counters look stale after an update.** Run `/flightdeck reset`.
+**Counters look stale after an update.** Run `/liveroom reset`.
 
 ## How it works
 
@@ -164,8 +166,9 @@ State lives in `$.state` atoms. Every read is merged over defaults, so a missing
 
 ## Related projects
 
-Flightdeck works alongside these, and owes ideas to them:
+Liveroom works alongside these, and owes ideas to them:
 
+- [Flightdeck](https://github.com/scasella/claude-flightdeck): the live agent dashboard Liveroom is forked from.
 - [claude-hud](https://github.com/jarrodwatts/claude-hud): context, limits, tools and agents in your status line. Use both: that's the status line, this is the pane.
 - [zoetrope](https://github.com/furkankly/zoetrope): a Claude Code or Codex session as a live flow graph.
 - [ccusage](https://github.com/ccusage/ccusage): cost reports from your session logs.

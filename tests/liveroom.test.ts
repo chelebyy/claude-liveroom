@@ -192,11 +192,11 @@ const engine = (on: On) => {
 }
 
 const pane = (bodyColumns: number) => ({
-  plugin: 'flightdeck',
+  plugin: 'liveroom',
   component: 'Pane' as const,
-  requestId: 'flightdeck',
+  requestId: 'liveroom',
   props: {
-    title: 'Flightdeck',
+    title: 'Liveroom',
     isFocused: true,
     bodyColumns,
     placement: 'dock' as const,

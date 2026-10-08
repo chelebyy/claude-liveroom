@@ -57,25 +57,25 @@ import {
 } from './core'
 import type { Config, Panel } from './core'
 
-const PANE = 'flightdeck'
-const TITLE = 'Flightdeck'
+const PANE = 'liveroom'
+const TITLE = 'Liveroom'
 const PANE_COLUMNS = 66
 
 
 // ---------------------------------------------------------------- state
 
-const meta = atom({ plugin: 'flightdeck', key: 'meta' } as const, { schemaVersion: SCHEMA_VERSION })
-const main = atom({ plugin: 'flightdeck', key: 'main' } as const, DEFAULT_MAIN)
-const usage = atom({ plugin: 'flightdeck', key: 'usage' } as const, DEFAULT_USAGE)
-const architect = atom({ plugin: 'flightdeck', key: 'architect' } as const, DEFAULT_ARCHITECT)
-const gate = atom({ plugin: 'flightdeck', key: 'gate' } as const, DEFAULT_GATE)
-const agents = atom({ plugin: 'flightdeck', key: 'agents' } as const, [])
-const loops = atom({ plugin: 'flightdeck', key: 'loops' } as const, [])
-const log = atom({ plugin: 'flightdeck', key: 'log' } as const, [])
-const turn = atom({ plugin: 'flightdeck', key: 'turn' } as const, DEFAULT_TURN)
-const receipt = atom({ plugin: 'flightdeck', key: 'receipt' } as const, null)
-const view = atom({ plugin: 'flightdeck', key: 'view' } as const, DEFAULT_VIEW)
-const roster = atom({ plugin: 'flightdeck', key: 'roster' } as const, DEFAULT_ROSTER)
+const meta = atom({ plugin: 'liveroom', key: 'meta' } as const, { schemaVersion: SCHEMA_VERSION })
+const main = atom({ plugin: 'liveroom', key: 'main' } as const, DEFAULT_MAIN)
+const usage = atom({ plugin: 'liveroom', key: 'usage' } as const, DEFAULT_USAGE)
+const architect = atom({ plugin: 'liveroom', key: 'architect' } as const, DEFAULT_ARCHITECT)
+const gate = atom({ plugin: 'liveroom', key: 'gate' } as const, DEFAULT_GATE)
+const agents = atom({ plugin: 'liveroom', key: 'agents' } as const, [])
+const loops = atom({ plugin: 'liveroom', key: 'loops' } as const, [])
+const log = atom({ plugin: 'liveroom', key: 'log' } as const, [])
+const turn = atom({ plugin: 'liveroom', key: 'turn' } as const, DEFAULT_TURN)
+const receipt = atom({ plugin: 'liveroom', key: 'receipt' } as const, null)
+const view = atom({ plugin: 'liveroom', key: 'view' } as const, DEFAULT_VIEW)
+const roster = atom({ plugin: 'liveroom', key: 'roster' } as const, DEFAULT_ROSTER)
 
 type ServerBlock = { type: string; id?: string; name?: string; tool_use_id?: string }
 
@@ -218,8 +218,8 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
-      name: 'flightdeck',
-      description: 'Flightdeck, the live agent dashboard: open, close, reset, or set the layout',
+      name: 'liveroom',
+      description: 'Liveroom, the live agent dashboard: open, close, reset, or set the layout',
       argumentHint: '[open|close|reset|layout auto|compact|wide|mini]',
     })
     await migrate($)
@@ -248,27 +248,27 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('command.run', { command: 'flightdeck' }, async ($, e) => {
+  on('command.run', { command: 'liveroom' }, async ($, e) => {
     const [verb = 'open', arg = ''] = e.args.trim().split(/\s+/)
     if (verb === 'close') {
       await $.ui.close({ id: PANE })
-      return { text: 'Flightdeck closed.' }
+      return { text: 'Liveroom closed.' }
     }
     if (verb === 'reset') {
       await resetAll($)
       await refreshStatus($, cfg)
-      return { text: 'Flightdeck reset.' }
+      return { text: 'Liveroom reset.' }
     }
     if (verb === 'layout') {
       const layout: Layout | null = arg === 'compact' || arg === 'wide' || arg === 'auto' || arg === 'mini' ? arg : null
-      if (!layout) return { text: 'Usage: /flightdeck layout auto|compact|wide|mini' }
+      if (!layout) return { text: 'Usage: /liveroom layout auto|compact|wide|mini' }
       await update($, view, v => ({ ...normalize(DEFAULT_VIEW, v), layout }))
       const opened = await openPane($)
-      return { text: opened.isPlaced ? `Flightdeck layout: ${layout}.` : `Layout set to ${layout}; the pane is not shown yet: ${opened.reason}` }
+      return { text: opened.isPlaced ? `Liveroom layout: ${layout}.` : `Layout set to ${layout}; the pane is not shown yet: ${opened.reason}` }
     }
     const opened = await openPane($)
-    if (!opened.isPlaced) return { text: `Flightdeck is not shown yet: ${opened.reason}` }
-    return { text: 'Flightdeck opened. Focus it with ctrl+x tab; 1-6 expand cards, f/s/o open the gate rows.' }
+    if (!opened.isPlaced) return { text: `Liveroom is not shown yet: ${opened.reason}` }
+    return { text: 'Liveroom opened. Focus it with ctrl+x tab; 1-6 expand cards, f/s/o open the gate rows.' }
   })
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
@@ -1043,7 +1043,7 @@ export const register: Register = (on, options) => {
             </Box>
           ))}
           {cards.length > live.length ? (
-            <Text color={C.faint} wrap="truncate">{`+${cards.length - live.length} more agents · /flightdeck layout compact for all`}</Text>
+            <Text color={C.faint} wrap="truncate">{`+${cards.length - live.length} more agents · /liveroom layout compact for all`}</Text>
           ) : null}
           {lp.length > 0 ? <Text dimColor>{`other loops ${lp.length} · ${lp.filter(l => isLoopActive(l, now)).length} active`}</Text> : null}
           {!m.isRunning && r ? (
@@ -1081,7 +1081,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column" width={W}>
         <Box justifyContent="center">
           <Text bold wrap="truncate">
-            <Text>FLIGHTDECK</Text>
+            <Text>LIVEROOM</Text>
             <Text color={C.dim}> · </Text>
             <Text color={C.main}>{modelName.toUpperCase()}</Text>
             <Text>{m.isRunning ? ' WORKS' : ' IDLE'}</Text>

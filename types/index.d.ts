@@ -92,7 +92,7 @@ export type Roster = { architectTypes: string[] }
 
 declare module 'claude-code' {
   interface PluginState {
-    'flightdeck': {
+    'liveroom': {
       meta: { schemaVersion: number }
       main: Main
       usage: Usage
