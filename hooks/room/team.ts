@@ -4,7 +4,8 @@
 // each of its turns' steps and end, its tool calls (SendMessage, Task*) with its `agentId`, and the
 // harness's own notices in its mailbox (`idle_notification`, `task_assignment`). A teammate in a
 // terminal pane of its own runs no loop here: only its messages and notices to the lead arrive, so
-// its state is inferred from them. `$.agent.list()` is not used: it says `running` between turns.
+// its state is inferred from them. `$.agent.list()` says only whether a teammate is still there:
+// it reads `running` between turns.
 import type { MemberState, Team, TeamMember, TeamMessage, TeamTask } from '../../types'
 import { redact, shorten } from '../core'
 

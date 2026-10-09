@@ -1071,7 +1071,7 @@ export const register: Register = (on, options) => {
 
     // Inline above the prompt (the terminal's main screen), the pane is a summary of at most 8 rows.
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
-    const crew = room.team.members.slice(-8)
+    const crew = room.team.members.filter(m => m.state !== 'ended').slice(-8)
     if (isMini) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, crew.length > 0 ? 2 : 3) // a team's row takes one of the three
       const wordy = tx(' {allowed} allowed · {cleared} {decider}{pending} · {denied} denied', { allowed: s.rule, cleared: s.cleared, decider, pending: s.ask > 0 ? tx(' · {n} pending', { n: s.ask }) : '', denied: s.deny })
@@ -1128,7 +1128,10 @@ export const register: Register = (on, options) => {
             <Text wrap="truncate">
               <Text color={ROOM_COLORS[cfg.palette].team}>{`${tx('team')} `}</Text>
               {crew.map(m => (
-                <Text color={memberColorOf(C, m.state)}>{`${MEMBER_GLYPH[m.state]}${m.name} `}</Text>
+                <Text>
+                  {ruleOf(m.id) ? <Text color={C.amber}>⚠</Text> : null}
+                  <Text color={memberColorOf(C, m.state)}>{`${MEMBER_GLYPH[m.state]}${m.name} `}</Text>
+                </Text>
               ))}
             </Text>
           ) : null}
@@ -1393,12 +1396,26 @@ async function teamStep($: EngineInterface, id: string, index: number): Promise<
   return true
 }
 
-/** A teammate's turn ends in waiting for a message, or failed on an error. False for any other loop. */
+/**
+ * A teammate's turn ends in waiting for a message, or failed on an error. One stopped without the
+ * shutdown handshake (TaskStop, the lead ending) ends its turn cut short and leaves the agent list,
+ * where it no longer waits. False for any other loop.
+ */
 async function endTeamTurn($: EngineInterface, id: string, reason: string): Promise<boolean> {
   if (!memberOf(teamOf(await read($, team)), id)) return false
+  const isGone = reason === 'aborted' && !(await isListed($, id))
   const at = await $.clock.now()
-  await update($, team, t => setState(teamOf(t), id, turnEndState(reason), at))
+  await update($, team, t => setState(teamOf(t), id, isGone ? 'ended' : turnEndState(reason), at))
   return true
+}
+
+/** Whether an agent is still on the session's list; true when the list can't be read. */
+async function isListed($: EngineInterface, id: string): Promise<boolean> {
+  try {
+    return (await $.agent.list()).some(a => a.id === id)
+  } catch {
+    return true
+  }
 }
 
 /** A SendMessage that went out: from the lead, a teammate, or another agent of the session. */

@@ -213,6 +213,7 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
             <Box justifyContent="space-between">
               <Text wrap="truncate">
                 <Text color={memberColorOf(C, m.state)}>{`${MEMBER_GLYPH[m.state]} `}</Text>
+                {x.isRuleOn && room.rules[m.id] ? <Text color={C.amber}>{'⚠ '}</Text> : null}
                 <Text color={isLive ? C.text : C.dim} bold={m.state === 'working'}>
                   {shorten(m.name, nameW).padEnd(nameW)}
                 </Text>

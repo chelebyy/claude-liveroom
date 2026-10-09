@@ -4,7 +4,9 @@
 
 - **team** panel: an agent team's teammates, ● working, ○ idle with how long it has waited, ■ shut down, ✗ failed, with the task each works on; ▣ marks one in a terminal pane of its own. Below them, the last three messages between the lead and its teammates, shutdown and plan answers included, each a summary or first line with credentials masked.
 - **tasks** panel: the task list the Task tools keep, work in progress first, then what waits, then the newest done, each with its owner.
-- A teammate no longer shows as a finished agent card after its first turn: teammates leave the agent cards for the team panel, so the agents header and the status line's `agents` count leave them out. The status line counts working teammates (`team 1/2`), and the inline summary gives the team a row, showing two agents instead of three when there is one.
+- A teammate no longer shows as a finished agent card after its first turn: teammates leave the agent cards for the team panel, so the agents header and the status line's `agents` count leave them out. The status line counts working teammates (`team 1/2`), and the inline summary gives teammates still running a row, showing two agents instead of three when there is one.
+- A teammate whose spawn names no model and runs on the lead's gets the delegation rule's ⚠ in the team panel and the summary, as an agent card did.
+- A teammate stopped without the shutdown handshake, whose turn is cut short and who has left the session's agent list, shows ■; one interrupted but still listed waits.
 - Teammates in panes of their own run outside the lead's process. Their state is read from their messages and the team's idle and shutdown notices; see "What is inferred".
 - A message from another agent or session reaches the log as its tag and sender (`teammate message from scout`), not as your prompt: Claude Code now puts a note before it. A background architect's hand-back behind that note is read as its advice again.
 - The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.

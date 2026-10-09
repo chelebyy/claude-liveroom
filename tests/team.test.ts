@@ -128,7 +128,10 @@ test('team and task panels take rows only when they have something to show', () 
 
 // ---------------------------------------------------------------- drawn
 
-/** The world beneath the plugin: a teammate spawn answers with its team address. */
+/**
+ * The world beneath the plugin: a teammate spawn answers with its team address, on the lead's model
+ * unless the call names one. `critic` runs in a terminal pane of its own, so its id is its address.
+ */
 const engine = (on: On, statuses?: string[]) => {
   mock.clock(on)
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
@@ -142,7 +145,9 @@ const engine = (on: On, statuses?: string[]) => {
   on('turn.complete', () => ({ text: '' }))
   on('session.receive', (_$, e) => ({ text: e.text }))
   on('agent.spawn', (_$, e) =>
-    e.isTeammate ? { model: e.model ?? 'claude-haiku-5-5', agentId: `tm-${e.name}`, teammateId: `${e.name}@session-t` } : { model: e.model ?? 'claude-opus-5-5', agentId: `sub-${e.description}` },
+    e.isTeammate
+      ? { model: e.model ?? e.parentModel, agentId: e.name === 'critic' ? 'critic@session-t' : `tm-${e.name}`, teammateId: `${e.name}@session-t` }
+      : { model: e.model ?? 'claude-opus-5-5', agentId: `sub-${e.description}` },
   )
   on('tool.call', (_$, e) => {
     if (e.tool === 'TaskCreate') return { result: { task: { id: '1', subject: String((e as { subject?: unknown }).subject) } }, text: 'ok' }
@@ -161,8 +166,9 @@ const pane = (bodyColumns: number) => ({
 
 const START = { cwd: '/tmp', surface: 'terminal', isInteractive: true } as never
 
-const spawnTeammate = ($: Engine, name: string) =>
-  $.agent.spawn({ prompt: 'p', description: `${name} work`, name, isTeammate: true, subagentType: 'teammate', tool_use_id: `tu-${name}`, provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false } as never)
+/** Spawns a teammate; `null` names no model, so it runs on the lead's. */
+const spawnTeammate = ($: Engine, name: string, model: string | null = 'claude-haiku-5-5') =>
+  $.agent.spawn({ prompt: 'p', description: `${name} work`, name, model: model ?? undefined, isTeammate: true, subagentType: 'teammate', tool_use_id: `tu-${name}`, provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false } as never)
 
 test('a teammate joins the team panel, not the agent cards, and waits between turns instead of finishing', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
   const statuses: string[] = []
@@ -175,6 +181,7 @@ test('a teammate joins the team panel, not the agent cards, and waits between tu
   expect(await ui.find({ text: /no subagents yet|agents · / })).toBeUndefined() // no card
   expect(await ui.find({ text: /joined the team/ })).toBeDefined()
   expect(statuses.at(-1)).toContain('team 1/1')
+  expect(await ui.find({ text: /^⚠ $/ })).toBeUndefined() // it named its model
   await ui.unmount()
   // Its turn ends: it waits for a message, it has not finished.
   await $.turn.complete({ answer: 'ready', durationMs: 10, isAborted: false, turnId: 'T1', agentId: 'tm-scout', reason: 'answer' } as never)
@@ -207,12 +214,45 @@ test('a pane teammate: its messages and idle notice arrive by mailbox; a shutdow
   expect(await ui.find({ text: /^found two bugs$/ })).toBeDefined()
   expect(await ui.find({ text: /counted at its call/ })).toBeUndefined()
   expect(await ui.find({ text: /^0 working · 1 idle$/ })).toBeDefined()
+  expect(await ui.find({ text: /^ ▣$/ })).toBeDefined() // in a pane of its own
   await ui.unmount()
+  const p = pane(80)
+  const mini = { ...p, props: { ...p.props, placement: 'inline' as const }, surface: 'terminal' as const }
+  let inline = await $.ui.mount(mini)
+  expect(await inline.find({ text: /^○critic $/ })).toBeDefined()
+  await inline.unmount()
   await $.session.receive({ origin: { kind: 'peer', teammate: 'critic', isVerified: false }, text: '{"type":"shutdown_approved","requestId":"r"}' } as never)
   ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /^■ $/ })).toBeDefined()
   expect(await ui.find({ text: /shut down/ })).toBeDefined()
   expect(await ui.find({ text: /^0 working · 0 idle$/ })).toBeDefined()
+  await ui.unmount()
+  inline = await $.ui.mount(mini)
+  expect(await inline.find({ text: /critic/ })).toBeUndefined() // a team that shut down takes no row
+  await inline.unmount()
+})
+
+test('a teammate whose spawn names no model and runs on the lead\'s gets ⚠ in the team panel and the summary', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await spawnTeammate($, 'scout', null)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^⚠ $/ })).toBeDefined()
+  await ui.unmount()
+  const p = pane(80)
+  const inline = await $.ui.mount({ ...p, props: { ...p.props, placement: 'inline' as const }, surface: 'terminal' })
+  expect(await inline.find({ text: /^⚠$/ })).toBeDefined()
+  await inline.unmount()
+})
+
+test('a teammate cut short ends waiting while the agent list can\'t say it left', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await spawnTeammate($, 'scout')
+  // The kit has no agent list, so a cut-short turn is read as an interrupt: the teammate waits.
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: true, turnId: 'T1', agentId: 'tm-scout', reason: 'aborted' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^0 working · 1 idle$/ })).toBeDefined()
   await ui.unmount()
 })
 
