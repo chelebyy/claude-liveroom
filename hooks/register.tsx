@@ -63,7 +63,7 @@ import type { LanguageOption, T } from './room/i18n'
 import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
-import { LEAD, addTask, applyMessage, assignTask, endAll, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
+import { LEAD, addTask, applyMessage, assignTask, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -259,7 +259,10 @@ export const register: Register = (on, options) => {
     if (e.reason === 'clear') {
       await resetAll($)
       await refreshStatus($, cfg)
-    } else await endTeammates($)
+    } else {
+      await endTeammates($)
+      await refreshStatus($, cfg)
+    }
     return next(e)
   })
 
@@ -1385,12 +1388,12 @@ async function resetRoom($: EngineInterface) {
 }
 
 /**
- * A session that ends other than by `/clear` (a resume, an exit) takes its teammates with it: Claude
- * Code brings none back, so a resumed session shows them shut down. The task list stays.
+ * A session that ends other than by `/clear` (a resume, a branch, an exit) takes its teammates with
+ * it: Claude Code brings none back, so none of them stays to be counted, or revived by a message to
+ * its name. The task list stays, as resumed sessions keep their tasks.
  */
 async function endTeammates($: EngineInterface) {
-  const at = await $.clock.now()
-  await update($, team, t => endAll(teamOf(t), at))
+  await update($, team, () => ({ members: [], messages: [] }))
 }
 
 /** A teammate joins the team panel, working on the prompt it was spawned with. */

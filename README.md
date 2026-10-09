@@ -1,7 +1,7 @@
 # Liveroom
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Claude Code 2.1.287+](https://img.shields.io/badge/Claude%20Code-2.1.287%2B%20mod-d97757.svg)](https://claude.com/blog/claude-code-mods)
+[![Claude Code 2.1.289+](https://img.shields.io/badge/Claude%20Code-2.1.289%2B%20mod-d97757.svg)](https://claude.com/blog/claude-code-mods)
 
 **A Claude Code mod that puts a live room in your terminal**: context and cost, an advisor timeline, every permission check, and your subagents as cards or swimlanes. Every number comes from a real session event, and nothing leaves your machine.
 
@@ -17,7 +17,7 @@
 
 ## Install
 
-Inside Claude Code (2.1.287 or later):
+Inside Claude Code (2.1.289 or later, which gives mods teammate spawns):
 
 ```
 /plugin marketplace add chelebyy/claude-liveroom
@@ -132,7 +132,7 @@ What it keeps: short summaries (a tool name plus a path or command, a message's 
 - **The shell reader is a heuristic, not a shell.** It reads quotes, here-documents, redirections, `&` lists, `wait`, line continuations, shell keywords (`if codex …`, `do codex …`) and common wrappers (`env`, `timeout`, `nohup`, `sudo`, `nice`). `wait` with a job id counts as waiting for codex, whichever job it names. It does not look inside `bash -c "…"`, `$(…)`, subshells `( … )` or `xargs`, and a comment after a codex call counts as a command, so that run ends as `■`.
 - **A rescue's model and effort** are read from `--model` and `--effort` anywhere in its prompt, because the codex-rescue agent treats them as runtime controls wherever they appear. A task that mentions those flags in prose is read the same way.
 - **A teammate's state is read from its turns and messages.** It works from its first step until its turn ends, then waits; a message sent to a waiting teammate marks it working before its next turn starts. `$.agent.list()` says only whether a teammate is still there, since it reads `running` between turns: one whose turn was cut short and that left the list or is listed as stopped (stopped without the shutdown handshake) shows ■, while one still running on it was interrupted and waits. A message or a turn of its own brings back an in-process teammate that stopped, as Claude Code does. Messages another plugin sends with `$.session.send` don't show: only SendMessage calls and mailbox deliveries do.
-- **Teammates in panes of their own** (`teammateMode` `tmux`, or `auto` inside tmux) run outside this process, so their turns and tool calls raise no events here. The pane reads them from what reaches the lead: a message from one means it is working, its idle notice that it waits (or failed, when its turn ended on an API error), its shutdown answer or termination notice that it is gone. Its plan requests and its plan and shutdown answers show as such; anything else it writes, JSON included, is a message. Only messages between the lead and a teammate, or between two teammates, are the team's: one to or from another session doesn't show. A plan answer or a shutdown request wakes its teammate, which implements, plans again or answers. A session that ends other than by `/clear` (a resume, an exit) ends its teammates, since Claude Code brings none back; the task list stays. The roster keeps every teammate still running and up to 24 in all, dropping the oldest that shut down first. Their task changes show when the lead lists the tasks, and messages between two such teammates don't show. One whose pane closes or dies without a notice keeps its last state. This was checked live with in-process teammates only.
+- **Teammates in panes of their own** (`teammateMode` `tmux`, or `auto` inside tmux) run outside this process, so their turns and tool calls raise no events here. The pane reads them from what reaches the lead: a message from one means it is working, its idle notice that it waits (or failed, when its turn ended on an API error), its shutdown answer or termination notice that it is gone. Its plan requests and its plan and shutdown answers show as such; anything else it writes, JSON included, is a message. Only messages between the lead and a teammate, or between two teammates, are the team's: one to or from another session doesn't show. A plan answer or a shutdown request wakes its teammate, which implements, plans again or answers. A session that ends other than by `/clear` (a resume, a branch, an exit) clears its team, since Claude Code brings none of its teammates back; the task list stays. The roster keeps every teammate still running and up to 24 in all, dropping the oldest that shut down first. Their task changes show when the lead lists the tasks, and messages between two such teammates don't show. One whose pane closes or dies without a notice keeps its last state. This was checked live with in-process teammates only.
 - **The delegation rule sees the call, not the agent definition.** ⚠ means the spawn named no model and the agent runs on the main model, or, for a subagent's own spawn, on its parent's. That holds even when the definition picked that same model itself. Turn it off with `delegationRule: false`.
 
 ## Configure
@@ -159,7 +159,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 ## Troubleshooting
 
 **The pane doesn't appear.**
-- Check `claude --version` is 2.1.287 or later, then run `/reload-plugins` and `/liveroom`.
+- Check `claude --version` is 2.1.289 or later, then run `/reload-plugins` and `/liveroom`.
 - Below 144 columns, Claude Code won't seat a pane nobody asked for; `/liveroom` opens it at any width.
 - Look in the transcript for a dim line starting `liveroom:`. It names the hook that failed or the reason the pane was refused. Please [open an issue](https://github.com/chelebyy/claude-liveroom/issues) with it.
 

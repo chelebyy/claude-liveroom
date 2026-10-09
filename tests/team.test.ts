@@ -11,7 +11,6 @@ import {
   applyMessage,
   assignTask,
   boardRows,
-  endAll,
   isTeamMessage,
   joinTeam,
   listTasks,
@@ -130,6 +129,12 @@ test('the task list: created, updated, owned, deleted, and replaced by a TaskLis
   ])
   expect(ts.map(t => `${t.id}:${t.status}:${t.subject}`)).toEqual(['1:completed:probe task one', '9:pending:from a pane'])
   expect(listTasks(ts, 'not a list')).toEqual([])
+  // A subject is stored with credentials masked, by every path that brings one.
+  const secret = 'rotate ghp_abcdefghijklmnop now'
+  expect(addTask([], { id: '1', subject: secret })[0]?.subject).not.toContain('abcdefghijklmnop')
+  expect(updateTask([], { taskId: '1', subject: secret })[0]?.subject).not.toContain('abcdefghijklmnop')
+  expect(listTasks([], [{ id: '1', subject: secret, status: 'pending' }])[0]?.subject).not.toContain('abcdefghijklmnop')
+  expect(assignTask([], '1', secret, 'scout')[0]?.subject).not.toContain('abcdefghijklmnop')
 })
 
 test('a plan answer wakes its teammate; only the team\'s traffic is the team\'s', () => {
@@ -156,11 +161,10 @@ test('the roster drops the oldest teammates that shut down first, never one stil
   expect(t.members.length).toBe(24)
   expect(t.members.filter(m => m.state !== 'ended').length).toBe(21) // every one still running
   expect(t.members.find(m => m.id === 'a0')).toBeUndefined()
-  // A shutdown request wakes its teammate, which answers it; a session's end ends them all.
+  // A shutdown request wakes its teammate, which answers it.
   t = setState(t, 'b1', 'idle', 300)
   t = applyMessage(t, messageOf({ to: 'late', message: { type: 'shutdown_request', reason: 'done' } }, LEAD, 310)!)
   expect(t.members.find(m => m.id === 'b1')?.state).toBe('working')
-  expect(endAll(t, 400).members.every(m => m.state === 'ended')).toBe(true)
 })
 
 test('a long task list drops the oldest done first, so work in progress stays', () => {
@@ -207,7 +211,7 @@ const engine = (on: On, statuses?: string[]) => {
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('session.start', (_$, e) => e)
   on('ui.status', (_$, e) => {
-    if (statuses && typeof e.text === 'string') statuses.push(e.text)
+    statuses?.push(typeof e.text === 'string' ? e.text : '') // '' when the entry is cleared
     return { value: undefined }
   })
   on('ui.toast', () => ({ value: undefined }))
@@ -311,17 +315,23 @@ test('a pane teammate\'s JSON words are a message; a plan request shows; the mai
   await ui.unmount()
 })
 
-test('a session that ends other than by /clear ends its teammates and keeps the task list', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
-  engine(on)
+test('a session that ends other than by /clear clears its team and keeps the task list', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  const statuses: string[] = []
+  engine(on, statuses)
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   await $.session.start(START)
   await spawnTeammate($, 'scout')
   await $.tool.call({ tool: 'TaskCreate', subject: 'keep me', description: 'd', tool_use_id: 'k1' } as never)
   await $.session.end({ reason: 'resume', sessionId: 's' } as never)
-  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect(await ui.find({ text: /^■ $/ })).toBeDefined()
-  expect(await ui.find({ text: /^0 working · 0 idle$/ })).toBeDefined()
+  let ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^TEAM · teammates$/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /^keep me$/ })).toBeDefined()
+  await ui.unmount()
+  expect(statuses.at(-1) ?? '').not.toContain('team') // the status line follows
+  // A message to its old name is another session's now: it brings nobody back.
+  await $.tool.call({ tool: 'SendMessage', to: 'scout', message: 'are you there', tool_use_id: 'r1' } as never)
+  ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^TEAM · teammates$/ })).toBeUndefined()
   await ui.unmount()
 })
 

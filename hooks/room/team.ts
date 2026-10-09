@@ -50,11 +50,6 @@ function boundMembers(members: readonly TeamMember[]): TeamMember[] {
   return members.filter(m => !(m.state === 'ended' && extra-- > 0))
 }
 
-/** The session ended: its teammates end with it, as Claude Code brings none back on a resume. */
-export const endAll = (team: Team, at: number): Team => ({
-  ...team,
-  members: team.members.map(m => (m.state === 'ended' ? m : { ...m, state: 'ended', since: at })),
-})
 
 export const memberOf = (team: Team, id: string | undefined) => (id ? team.members.find(m => m.id === id) : undefined)
 
@@ -196,12 +191,15 @@ export function noticeOf(text: string, sender: string | null): TeamNotice | null
 // ---------------------------------------------------------------- tasks
 
 const STATUSES: readonly TeamTask['status'][] = ['pending', 'in_progress', 'completed']
+
+/** A task's subject as stored and shown: credentials masked, one line, 120 characters at most. */
+const subjectOf = (x: unknown) => shorten(redact(str(x) ?? ''), 120)
 const statusOf = (x: unknown): TeamTask['status'] | null => (STATUSES as readonly unknown[]).includes(x) ? (x as TeamTask['status']) : null
 
 /** The task list read leniently: entries without an id are dropped. */
 export function tasksOf(x: unknown): TeamTask[] {
   return listOf<Partial<TeamTask>>(x).flatMap(t =>
-    t && typeof t.id === 'string' ? [{ id: t.id, subject: str(t.subject) ?? '', status: statusOf(t.status) ?? 'pending', owner: str(t.owner) }] : [],
+    t && typeof t.id === 'string' ? [{ id: t.id, subject: subjectOf(t.subject), status: statusOf(t.status) ?? 'pending', owner: str(t.owner) }] : [],
   )
 }
 
@@ -220,7 +218,7 @@ const upsert = (tasks: readonly TeamTask[], task: TeamTask) => {
 /** TaskCreate's answer: a new pending task. */
 export function addTask(tasks: readonly TeamTask[], task: { id?: unknown; subject?: unknown }): TeamTask[] {
   const id = str(task.id)
-  return id ? upsert(tasks, { id, subject: str(task.subject) ?? '', status: 'pending', owner: null }) : [...tasks]
+  return id ? upsert(tasks, { id, subject: subjectOf(task.subject), status: 'pending', owner: null }) : [...tasks]
 }
 
 /**
@@ -234,7 +232,7 @@ export function updateTask(tasks: readonly TeamTask[], input: { taskId?: unknown
   const was = tasks.find(t => t.id === id) ?? { id, subject: '', status: 'pending' as const, owner: null }
   return upsert(tasks, {
     ...was,
-    subject: str(input.subject) ?? was.subject,
+    subject: typeof input.subject === 'string' ? subjectOf(input.subject) : was.subject,
     status: statusOf(input.status) ?? was.status,
     owner: typeof input.owner === 'string' ? input.owner || null : was.owner,
   })
@@ -247,8 +245,8 @@ export function listTasks(tasks: readonly TeamTask[], listed: unknown): TeamTask
 
 /** A task assigned to a member, as its assignment notice says. */
 export function assignTask(tasks: readonly TeamTask[], taskId: string, subject: string, owner: string): TeamTask[] {
-  const was = tasks.find(t => t.id === taskId) ?? { id: taskId, subject, status: 'pending' as const, owner: null }
-  return upsert(tasks, { ...was, subject: was.subject || subject, owner })
+  const was = tasks.find(t => t.id === taskId) ?? { id: taskId, subject: '', status: 'pending' as const, owner: null }
+  return upsert(tasks, { ...was, subject: was.subject || subjectOf(subject), owner })
 }
 
 /** The task a member works on: one it owns that is in progress. */
