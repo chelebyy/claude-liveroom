@@ -59,6 +59,8 @@ import type { Config, Panel } from './core'
 import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, roomRows } from './room/panels'
 import type { CodexRun } from './room/core'
 import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
+import type { LanguageOption, T } from './room/i18n'
+import { isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
 
@@ -229,6 +231,7 @@ export const register: Register = (on, options) => {
       argumentHint: '[open|close|reset|layout auto|compact|wide|mini]',
     })
     await migrate($)
+    await noteLanguage($, cfg.language)
     // A host without usage (headless, an SDK host, a session not yet bound) just starts without it.
     const u = await $.session.usage().catch(() => null)
     if (u) {
@@ -546,8 +549,12 @@ export const register: Register = (on, options) => {
       $.clock.now(),
       readRoom($),
     ])
+    const tx = await readT($)
     // A warning recorded earlier stays in the session; the option decides whether it shows now.
-    const ruleOf = (id: string) => (cfg.delegationRule ? room.rules[id] : undefined)
+    const ruleOf = (id: string) => {
+      const note = cfg.delegationRule ? room.rules[id] : undefined
+      return note && isKey(note) ? tx(note) : note
+    }
     const W = Math.max(40, e.props.bodyColumns)
     const layout = v.layout ?? cfg.layout
     const isWide = layout === 'wide' || (layout === 'auto' && W >= 110)
@@ -964,7 +971,7 @@ export const register: Register = (on, options) => {
 
     const draw = (p: Panel, w: number) =>
       isRoomPanel(p)
-        ? drawRoom(p, w, { els, C, palette: cfg.palette, room, isRuleOn: cfg.delegationRule, clock })
+        ? drawRoom(p, w, { els, C, palette: cfg.palette, room, isRuleOn: cfg.delegationRule, clock, t: tx })
         : p === 'main'
         ? mainPanel(w)
         : p === 'architect'
@@ -1220,6 +1227,18 @@ const steps = atom({ plugin: 'liveroom', key: 'steps' } as const, {})
 const skills = atom({ plugin: 'liveroom', key: 'skills' } as const, {})
 const plugins = atom({ plugin: 'liveroom', key: 'plugins' } as const, {})
 const rules = atom({ plugin: 'liveroom', key: 'rules' } as const, {})
+const language = atom({ plugin: 'liveroom', key: 'language' } as const, 'en')
+
+/** The pane's language: the option's, or under `auto` Claude Code's own `language` setting. */
+async function noteLanguage($: EngineInterface, option: LanguageOption) {
+  const setting = option === 'auto' ? await $.settings.read().then(s => s.language, () => undefined) : undefined
+  await update($, language, () => langOf(option, setting))
+}
+
+/** Text in the pane's language. */
+async function readT($: EngineInterface): Promise<T> {
+  return makeT((await read($, language)) === 'tr' ? 'tr' : 'en')
+}
 
 /** Everything the room's panels draw from, read leniently. */
 async function readRoom($: EngineInterface): Promise<RoomView> {
@@ -1293,5 +1312,7 @@ async function noteSpawn(
   // A nested spawn's parent model is the calling subagent's, not the main loop's.
   const note = e.parentAgentId ? "no model in the call, inherits its parent's model" : 'no model in the call, runs on the main model'
   await update($, rules, r => noteRule(r, id, note))
-  $.ui.toast(e.parentAgentId ? `⚠ ${e.subagentType}: no model in the call, inherits ${started.model} from its parent` : `⚠ ${e.subagentType}: no model in the call, runs on ${started.model}`)
+  const tx = await readT($)
+  const vars = { type: e.subagentType, model: started.model ?? '' }
+  $.ui.toast(e.parentAgentId ? tx('⚠ {type}: no model in the call, inherits {model} from its parent', vars) : tx('⚠ {type}: no model in the call, runs on {model}', vars))
 }

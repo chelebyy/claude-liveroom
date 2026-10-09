@@ -144,6 +144,8 @@ declare module 'claude-code' {
       plugins: Record<string, number>
       /** Agent id → why its spawn broke the delegation rule. */
       rules: Record<string, string>
+      /** The pane's language, resolved at session start from the `language` option. */
+      language: 'en' | 'tr'
     }
   }
 }

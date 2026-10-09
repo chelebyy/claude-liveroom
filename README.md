@@ -111,10 +111,11 @@ Liveroom only watches. Every hook passes its event on unchanged: it never denies
 | subagent spawns, their model requests and token usage, and their final answers | `agent.spawn`, `turn.step`, `turn.complete` |
 | your prompts' first 70 characters, for the log | `turn.start` |
 | context, cost and rate-limit readings | `session.measure`, `$.session.usage()` |
+| your Claude Code `language` setting, once per session, when `language` is `auto` | `$.settings.read()` |
 | advisor tool calls in the assistant's responses (their content is encrypted) | `session.append` |
 | background task notifications: which call a task came from and how it ended | `session.append` |
 
-What it keeps: short summaries (a tool name plus a path or command, with credentials masked) and counters in session state, which ends with the session. It shows a toast when a subagent runs on the main model because its spawn named none. It makes **no** network requests, runs no processes, reads and writes no files, stores nothing across sessions, and calls no model. `claude plugin validate .` prints exactly what it hooks and calls.
+What it keeps: short summaries (a tool name plus a path or command, with credentials masked) and counters in session state, which ends with the session. It shows a toast when a subagent runs on the main model because its spawn named none. It makes **no** network requests, runs no processes, reads and writes no files (it asks Claude Code for its merged settings only to read `language`), stores nothing across sessions, and calls no model. `claude plugin validate .` prints exactly what it hooks and calls.
 
 ## What is inferred, not measured
 
@@ -147,6 +148,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | `openOnStart` | `true` | ask to open the pane when a session starts |
 | `statusLine` | `true` | context, running agents, consults and denials in the status line |
 | `delegationRule` | `true` | ⚠ and a toast for a subagent whose spawn names no model and that runs on the main model; ⚠ for a Codex hand-off without model or effort |
+| `language` | `auto` | the pane's language: `en`, `tr`, or `auto`, which follows Claude Code's own `language` setting (Turkish when it reads Turkish, English otherwise) |
 
 ## Troubleshooting
 
@@ -170,7 +172,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | [`hooks/rail.tsx`](hooks/rail.tsx), [`hooks/elapsed.tsx`](hooks/elapsed.tsx) | surface modules: animated connectors and live clocks that redraw only themselves, on the surface's own frame clock |
 | [`types/index.d.ts`](types/index.d.ts) | the state contract |
 | [`hooks/room/`](hooks/room) | Liveroom's additions: Codex call parsing, tallies and the models, codex and skills panels, as pure functions |
-| [`tests/`](tests) | 55 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
+| [`tests/`](tests) | 59 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
 
 State lives in `$.state` atoms. Every read is merged over defaults, so a missing or older field never breaks the pane; an update that changes the state's shape may still reset its counters once. New to mods? Start with [Claude Code mods](https://claude.com/blog/claude-code-mods) and [Getting started with Claude Code mods](https://claude.dev/blog/getting-started-with-claude-code-mods/).
 

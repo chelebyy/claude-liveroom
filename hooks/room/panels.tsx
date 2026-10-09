@@ -6,6 +6,7 @@ import type { Colors, Palette } from '../core'
 import { prettyModel, shorten } from '../core'
 import type { CodexRun, RunStatus } from './core'
 import { meter, runGlyph, top } from './core'
+import type { Key, T } from './i18n'
 import type { RoomView } from './state'
 
 export type RoomPanel = 'models' | 'codex' | 'skills'
@@ -29,6 +30,8 @@ export type RoomCtx = {
   isRuleOn: boolean
   /** Flightdeck's live clock: ticks on the surface's own frame clock while `endAt` is null. */
   clock: (key: string, since: number, endAt: number | null, color: string) => JSX.Element
+  /** Text in the pane's language. */
+  t: T
 }
 
 export const isRoomPanel = (p: string): p is RoomPanel => (ROOM_PANELS as readonly string[]).includes(p)
@@ -56,11 +59,11 @@ export function roomRows(p: RoomPanel, room: RoomView, isRuleOn: boolean): numbe
 export const statusColorOf = (C: Colors, s: RunStatus) =>
   s === 'failed' ? C.warn : s === 'done' ? C.gate : s === 'background' || s === 'ended' ? C.dim : C.agent
 
-const KIND_LABEL: Record<CodexRun['kind'], string> = { rescue: 'rescue', consult: 'consult', exec: 'exec', review: 'review' }
+const KIND_LABEL: Record<CodexRun['kind'], Key> = { rescue: 'rescue', consult: 'consult', exec: 'exec', review: 'review' }
 
 export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
   const { Box, Text } = x.els
-  const { C, room } = x
+  const { C, room, t } = x
   const RC = ROOM_COLORS[x.palette]
 
   const frame = (color: string, title: string, hint: string, body: JSX.Element | JSX.Element[]) => (
@@ -82,7 +85,7 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
     const barW = Math.max(4, Math.min(10, w - 32))
     return frame(
       C.main,
-      'MODELS · requests',
+      t('MODELS · requests'),
       String(total),
       rows.map(([key, n]) => {
         const [model, effort] = key.split(' · ')
@@ -114,20 +117,20 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
     const modelWidth = (r: CodexRun) => Math.max(6, w - 4 - 12 - (r.effort ? r.effort.length + 4 : 1) - 8)
     return frame(
       RC.codex,
-      'CODEX · hand-offs',
-      `${running} running${unseen > 0 ? ` · ${unseen} bg` : ''} · ${room.codex.length} total`,
+      t('CODEX · hand-offs'),
+      [t('{n} running', { n: running }), ...(unseen > 0 ? [t('{n} bg', { n: unseen })] : []), t('{n} total', { n: room.codex.length })].join(' · '),
       [
         ...shown.map(r => (
           <Box justifyContent="space-between">
             <Text wrap="truncate">
               <Text color={statusColorOf(C, r.status)}>{`${runGlyph(r.status)} `}</Text>
-              <Text color={isLive(r) ? C.text : C.dim}>{KIND_LABEL[r.kind]}</Text>
+              <Text color={isLive(r) ? C.text : C.dim}>{t(KIND_LABEL[r.kind])}</Text>
               {x.isRuleOn && r.ruleNote ? <Text color={C.amber}>{' ⚠'}</Text> : null}
             </Text>
             <Box flexShrink={0}>
               <Text>
                 <Text color={isLive(r) ? C.text : C.dim} bold={r.status === 'running'}>
-                  {shorten(r.model ?? (r.kind === 'review' ? 'own model' : 'default'), modelWidth(r))}
+                  {shorten(r.model ?? (r.kind === 'review' ? t('own model') : t('default')), modelWidth(r))}
                 </Text>
                 {r.effort ? <Text color={C.dim}>{` · ${r.effort} `}</Text> : <Text> </Text>}
               </Text>
@@ -138,7 +141,7 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
         ...(warned > 0
           ? [
               <Text color={C.amber} wrap="truncate">
-                {`⚠ ${warned} without model or effort`}
+                {t('⚠ {n} without model or effort', { n: warned })}
               </Text>,
             ]
           : []),
@@ -152,7 +155,7 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
   ]
   return frame(
     RC.skills,
-    'SKILLS · plugins',
+    t('SKILLS · plugins'),
     `${Object.keys(room.skills).length} · ${Object.keys(room.plugins).length}`,
     rows.map(r => (
       <Box justifyContent="space-between">

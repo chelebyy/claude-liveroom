@@ -110,6 +110,8 @@ export type Config = {
   statusLine: boolean
   /** Liveroom: flag subagents spawned with no model that run on the main model. */
   delegationRule: boolean
+  /** Liveroom: the pane's language; `auto` follows Claude Code's own `language` setting. */
+  language: 'auto' | 'en' | 'tr'
 }
 
 const safeRegExp = (source: string, fallback: string) => {
@@ -129,6 +131,7 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => {
     .map(s => s.trim())
     .filter((p): p is Panel => (PANELS as readonly string[]).includes(p))
   const layout = str('layout', 'auto')
+  const language = str('language', 'auto')
   const max = typeof o.maxCards === 'number' ? Math.round(o.maxCards) : 3
   return {
     architect: safeRegExp(str('architectPattern', ''), 'advisor|architect'),
@@ -144,6 +147,7 @@ export const parseConfig = (o: Readonly<Record<string, unknown>>): Config => {
     openOnStart: bool('openOnStart', true),
     statusLine: bool('statusLine', true),
     delegationRule: bool('delegationRule', true),
+    language: language === 'en' || language === 'tr' ? language : 'auto',
   }
 }
 

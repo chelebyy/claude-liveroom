@@ -1,5 +1,10 @@
 # Changelog
 
+## Liveroom 0.3.0
+
+- `language` option: `auto` (the default) follows Claude Code's own `language` setting, Turkish when it reads Turkish and English otherwise; `en` and `tr` pick one.
+- The models, codex and skills panels, the delegation warnings and their toasts speak Turkish under `tr`.
+
 ## Liveroom 0.2.0
 
 - **codex** panel: work handed to Codex through the `codex:codex-rescue` agent or `codex exec` / `codex review`, with its kind, model, effort and a running clock. It uses the agent cards' status colours: ◐ running, ✓ done, ✗ failed.

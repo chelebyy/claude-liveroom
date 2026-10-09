@@ -1,6 +1,6 @@
 {
   "name": "liveroom",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Liveroom: a live room for your Claude Code session. Main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log, all from real session events. Based on Flightdeck by Stephen Casella.",
   "author": {
     "name": "chelebyy",
@@ -112,6 +112,17 @@
       "description": "Flag (⚠ and a toast) a subagent whose spawn names no model and that runs on the main model, and a Codex hand-off that names no model or effort",
       "type": "boolean",
       "default": true
+    },
+    "language": {
+      "title": "Language",
+      "description": "The pane's language: auto follows Claude Code's own language setting (Turkish when it reads Turkish, English otherwise); en or tr picks one",
+      "type": "string",
+      "options": [
+        "auto",
+        "en",
+        "tr"
+      ],
+      "default": "auto"
     }
   }
 }
