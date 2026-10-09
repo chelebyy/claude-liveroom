@@ -1183,7 +1183,11 @@ export const register: Register = (on, options) => {
         // when it ends, so it shows bg.
         for (const [n, run] of runs.entries()) {
           if (ran.deny !== undefined) await endCodex($, run, ran) // it never ran
-          else if (calls[n]!.isDetached) await update($, codex, list => backgroundRun(list, run.id))
+          else if (calls[n]!.isDetached && ran.isError === true) {
+            // The line failed: maybe before codex launched (a syntax error), maybe after. No verdict.
+            const at = await $.clock.now()
+            await update($, codex, list => endRun(list, run.id, 'ended', at))
+          } else if (calls[n]!.isDetached) await update($, codex, list => backgroundRun(list, run.id))
           else if (e.run_in_background !== true) await endCodex($, run, ran)
           else if (ran.isError === true) await endCodex($, run, null) // the background shell never started
         }

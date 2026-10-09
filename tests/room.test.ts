@@ -485,6 +485,17 @@ test('a warned lane keeps its status glyph beside the ⚠', async ($, on) => {
   await ui.unmount()
 })
 
+test('a codex sent off with & on a line that failed ends without a verdict, not as bg', async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: {}, text: 'syntax error near unexpected token', isError: true }))
+  await $.tool.call({ tool: 'Bash', command: 'codex exec -m gpt-6-luna -c model_reasoning_effort=low x & )', tool_use_id: 'se1' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^■ $/ })).toBeDefined()
+  expect(await ui.find({ text: /^bg$/ })).toBeUndefined()
+  expect(await ui.find({ text: /0 running · 1 total/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('the inline summary marks a subagent that silently inherits the main model', async ($, on) => {
   engine(on)
   on('ui.toast', () => ({ value: undefined }))
