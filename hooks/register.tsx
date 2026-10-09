@@ -55,7 +55,7 @@ import {
   stepLoop,
 } from './core'
 import type { Config, Panel } from './core'
-import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, roomRows } from './room/panels'
+import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, loopDots, roomRows } from './room/panels'
 import type { CodexRun } from './room/core'
 import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
 import type { Lang, LanguageOption, T } from './room/i18n'
@@ -902,11 +902,13 @@ export const register: Register = (on, options) => {
     const loopsPanel = (w: number) => {
       if (lp.length === 0) return null
       const active = lp.filter(l => isLoopActive(l, now)).length
-      const dots = lp.slice(-Math.max(4, w - 38))
+      const label = tx('other loops ')
+      const counts = tx('{n} seen · {active} active  ', { n: lp.length, active })
+      const dots = lp.slice(-loopDots(w, label.length + counts.length))
       return (
         <Box width={w}>
-          <Text bold>{tx('other loops ')}</Text>
-          <Text dimColor>{tx('{n} seen · {active} active  ', { n: lp.length, active })}</Text>
+          <Text bold>{label}</Text>
+          <Text dimColor>{counts}</Text>
           {dots.map(l => (
             <Text color={isLoopActive(l, now) ? C.agent : l.isDone ? C.dim : C.faint}>{isLoopActive(l, now) ? '●' : l.isDone ? '✓' : '○'}</Text>
           ))}

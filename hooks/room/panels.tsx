@@ -55,6 +55,12 @@ export function roomRows(p: RoomPanel, room: RoomView, isRuleOn: boolean): numbe
   return frame + Math.min(5, Object.keys(room.skills).length) + Math.min(4, Object.keys(room.plugins).length)
 }
 
+/**
+ * How many loop dots share a row of `w` with `used` columns of text: Flightdeck's own count, capped
+ * so the row never runs past `w` once its text is longer, as the Turkish is.
+ */
+export const loopDots = (w: number, used: number) => Math.min(Math.max(4, w - 38), Math.max(1, w - used))
+
 /** The cards' colours: running in the agent colour, done green, failed red; a run without a verdict dims. */
 export const statusColorOf = (C: Colors, s: RunStatus) =>
   s === 'failed' ? C.warn : s === 'done' ? C.gate : s === 'background' || s === 'ended' ? C.dim : C.agent
@@ -66,13 +72,16 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
   const { C, room, t } = x
   const RC = ROOM_COLORS[x.palette]
 
-  const frame = (color: string, title: string, hint: string, body: JSX.Element | JSX.Element[]) => (
+  // The title row keeps to one line: a hint that can't share it falls back to its short form, then
+  // to nothing. The frame's border and padding take 4 columns.
+  const fitHint = (title: string, hints: string[]) => hints.find(h => title.length + 1 + h.length <= w - 4) ?? ''
+  const frame = (color: string, title: string, hints: string[], body: JSX.Element | JSX.Element[]) => (
     <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1} width={w}>
       <Box justifyContent="space-between">
         <Text color={color} bold>
           {title}
         </Text>
-        <Text color={C.dim}>{hint}</Text>
+        <Text color={C.dim}>{fitHint(title, hints)}</Text>
       </Box>
       {body}
     </Box>
@@ -86,7 +95,7 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
     return frame(
       C.main,
       t('MODELS · requests'),
-      String(total),
+      [String(total)],
       rows.map(([key, n]) => {
         const [model, effort] = key.split(' · ')
         return (
@@ -118,7 +127,10 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
     return frame(
       RC.codex,
       t('CODEX · hand-offs'),
-      [t('{n} running', { n: running }), ...(unseen > 0 ? [t('{n} bg', { n: unseen })] : []), t('{n} total', { n: room.codex.length })].join(' · '),
+      [
+        [t('{n} running', { n: running }), ...(unseen > 0 ? [t('{n} bg', { n: unseen })] : []), t('{n} total', { n: room.codex.length })].join(' · '),
+        t('{n} total', { n: room.codex.length }),
+      ],
       [
         ...shown.map(r => (
           <Box justifyContent="space-between">
@@ -156,7 +168,7 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
   return frame(
     RC.skills,
     t('SKILLS · plugins'),
-    `${Object.keys(room.skills).length} · ${Object.keys(room.plugins).length}`,
+    [`${Object.keys(room.skills).length} · ${Object.keys(room.plugins).length}`],
     rows.map(r => (
       <Box justifyContent="space-between">
         <Text color={r.isPlugin ? C.dim : C.text} wrap="truncate">

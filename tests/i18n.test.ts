@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { clockAblative, isKey, langOf, makeT } from '../hooks/room/i18n'
+import { loopDots } from '../hooks/room/panels'
 
 test('the language comes from the option, or under auto from Claude Code\'s own setting', () => {
   expect(langOf('en', 'Turkish')).toBe('en')
@@ -205,5 +206,27 @@ test('language en: the agents hint still fits beside its header at 40 columns', 
   const ui = await $.ui.mount({ ...pane(40), surface: 'terminal' })
   expect(await ui.find({ text: /agents · 4 running · 4 total/ })).toBeDefined()
   expect(await ui.find({ text: /1-\d expand/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('loop dots keep Flightdeck\'s count in English and never run past the row in Turkish', () => {
+  const en = 'other loops '.length + '1 seen · 0 active  '.length
+  expect([loopDots(40, en), loopDots(80, en)]).toEqual([4, 42]) // Flightdeck's max(4, w - 38)
+  const tr = 'diğer döngüler '.length + '10 görüldü · 10 aktif  '.length
+  expect(tr + loopDots(40, tr)).toBeLessThanOrEqual(40)
+})
+
+test('language tr: the codex header falls back to its short hint at 40 columns', { options: { language: 'tr', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  await $.session.start(START)
+  await $.tool.call({ tool: 'Bash', command: 'codex exec -m gpt-6-luna -c model_reasoning_effort=low x', tool_use_id: 'c1' } as never)
+  let ui = await $.ui.mount({ ...pane(40), surface: 'terminal' })
+  expect(await ui.find({ text: /CODEX · devirler/ })).toBeDefined()
+  expect(await ui.find({ text: /^1 toplam$/ })).toBeDefined()
+  expect(await ui.find({ text: /çalışıyor · 1 toplam/ })).toBeUndefined()
+  await ui.unmount()
+  ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /0 çalışıyor · 1 toplam/ })).toBeDefined()
   await ui.unmount()
 })
