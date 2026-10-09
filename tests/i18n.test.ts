@@ -2,7 +2,7 @@ import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { clockAblative, isKey, langOf, makeT } from '../hooks/room/i18n'
-import { openerOf } from '../hooks/room/core'
+import { openerOf, withoutPeerNote } from '../hooks/room/core'
 import { loopDots, mainModel } from '../hooks/room/panels'
 
 test('the language comes from the option, or under auto from Claude Code\'s own setting', () => {
@@ -257,19 +257,27 @@ test('a tagged turn opener is read for its tag and sender, as promptLine reads t
   expect(openerOf('<agent-message from="a1492260715f3be7b"> hi')).toEqual({ label: 'agent message', from: 'a1492260' })
   expect(openerOf('<task-notification>\n<task-id>b1</task-id>')).toEqual({ label: 'task notification', from: null })
   expect(openerOf('fix the parser')).toBeNull()
+  // A teammate names itself by its id in the team; the engine's note before it is dropped first.
+  const peer = 'Another Claude session sent a message:\n<teammate-message teammate_id="scout" color="blue" summary="greeting">\nhello'
+  expect(openerOf(withoutPeerNote(peer))).toEqual({ label: 'teammate message', from: 'scout' })
+  expect(withoutPeerNote('Fix this:\n<div>x</div>')).toBe('Fix this:\n<div>x</div>') // only the engine's own note
 })
 
-for (const [language, line] of [
-  ['tr', /^ajan mesajı · a1492260$/],
-  ['en', /^agent message from a1492260$/],
+for (const [language, line, teammate, author] of [
+  ['tr', /^ajan mesajı · a1492260$/, /^takım üyesi mesajı · scout$/, /^sistem$/],
+  ['en', /^agent message from a1492260$/, /^teammate message from scout$/, /^engine$/],
 ] as const) {
   test(`language ${language}: a tagged turn opener's log line`, { options: { language, openOnStart: false } }, async ($, on) => {
     engine(on)
     await $.session.start(START)
     await $.turn.start({ text: '<agent-message from="a1492260715f3be7b"> hi', turnId: 'M1' })
     await $.turn.start({ text: '<some-new-tag> x', turnId: 'M2' })
+    await $.turn.start({ text: 'Another Claude session sent a message:\n<teammate-message teammate_id="scout" summary="greeting">\nhello', turnId: 'M3' })
     const ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
     expect(await ui.find({ text: line })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: teammate })).toBeDefined()
+    expect(await ui.find({ text: /Another Claude session/ })).toBeUndefined()
+    expect((await ui.findAll({ type: 'Text', text: author })).length).toBe(3) // the engine wrote all three
     expect(await ui.find({ text: /^some new tag$/ })).toBeDefined() // an unknown tag stays as written
     await ui.unmount()
   })

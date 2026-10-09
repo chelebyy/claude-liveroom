@@ -55,13 +55,15 @@ import {
   stepLoop,
 } from './core'
 import type { Config, Panel } from './core'
-import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, loopDots, mainModel, roomRows } from './room/panels'
+import type { RoomPanel } from './room/panels'
+import { MEMBER_GLYPH, ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, loopDots, mainModel, memberColorOf, roomRows } from './room/panels'
 import type { CodexRun } from './room/core'
-import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, openerOf, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
+import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, openerOf, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices, withoutPeerNote } from './room/core'
 import type { LanguageOption, T } from './room/i18n'
 import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
+import { LEAD, addTask, applyMessage, assignTask, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -136,12 +138,15 @@ async function say($: EngineInterface, who: string, text: string, kind: LogLine[
 
 async function refreshStatus($: EngineInterface, cfg: Config) {
   if (!cfg.statusLine) return $.ui.status(undefined)
-  const [u, a, g, cards] = await Promise.all([getUsage($), getArchitect($), getGate($), getCards($)])
+  const [u, a, g, cards, t] = await Promise.all([getUsage($), getArchitect($), getGate($), getCards($), read($, team).then(teamOf)])
   const running = cards.filter(c => c.status === 'running').length
+  const working = t.members.filter(m => m.state === 'working').length
+  const live = t.members.filter(m => m.state === 'working' || m.state === 'idle').length
   const s = gateSummary(g)
   const parts = [
     u.pct !== null ? tx('ctx {n}%', { n: Math.round(u.pct) }) : null,
     cards.length > 0 ? tx('agents {running}/{total}', { running, total: cards.length }) : null,
+    live > 0 ? tx('team {working}/{total}', { working, total: live }) : null,
     a.consults.length > 0 || a.ids.length > 0 ? `${lower(cfg.architectLabel)} ${isAdvising(a) ? tx('advising') : a.consults.length}` : null,
     s.deny > 0 ? tx('denied {n}', { n: s.deny }) : null,
   ]
@@ -153,7 +158,8 @@ async function refreshStatus($: EngineInterface, cfg: Config) {
 async function whoIs($: EngineInterface, agentId: string | undefined) {
   if (!agentId) return 'main'
   const card = (await getCards($)).find(c => c.id === agentId)
-  return card ? shorten(cardTitle(card), 14) : 'agent'
+  const member = card ? undefined : memberOf(teamOf(await read($, team)), agentId)
+  return card ? shorten(cardTitle(card), 14) : member ? shorten(member.name, 14) : 'agent'
 }
 
 async function consultStarted($: EngineInterface, cfg: Config, id: string, via: string) {
@@ -302,14 +308,15 @@ export const register: Register = (on, options) => {
     await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), isRunning: true }))
     // A background architect's report reaches the main loop as the text opening this turn. The
     // SubagentHandback tool call (in tool.call) normally carries it first; this is the fallback.
-    const back = e.text ? handbackOf(e.text) : null
+    const opener = withoutPeerNote(e.text)
+    const back = opener ? handbackOf(opener) : null
     const a = back ? await getArchitect($) : null
     if (back && a && a.ids.includes(back.from)) {
       const advice = adviceLine(back.body)
       if (advice && advice !== a.lastAdvice) await noteAdvice($, cfg, advice)
-    } else if (e.text) {
-      const p = promptLine(e.text)
-      await say($, p.who, engineLine(e.text) ?? p.text)
+    } else if (opener) {
+      const p = promptLine(opener)
+      await say($, p.who, engineLine(opener) ?? p.text)
     }
     return next(e)
   })
@@ -324,6 +331,8 @@ export const register: Register = (on, options) => {
       })
       return yield* next(e)
     }
+    // A teammate's first step starts its turn: it works until the turn ends.
+    if (await teamStep($, e.agentId, e.index)) return yield* next(e)
     const result = yield* next(e)
     const id = e.agentId
     const [cards, a] = await Promise.all([getCards($), getArchitect($)])
@@ -465,6 +474,12 @@ export const register: Register = (on, options) => {
     if (!e.parentAgentId) await noteMode($, e.permissionMode)
     if (started.deny !== undefined || !started.agentId) return started
     const id = started.agentId
+    // A teammate waits between turns rather than finishing: it joins the team panel, not the cards.
+    if (e.isTeammate && started.teammateId) {
+      await joinTeammate($, id, started.teammateId, started.model ?? '')
+      await refreshStatus($, cfg)
+      return started
+    }
     if (await isArchitectType($, cfg, e.subagentType)) {
       await update($, architect, a => {
         const x = normalize(DEFAULT_ARCHITECT, a)
@@ -504,6 +519,10 @@ export const register: Register = (on, options) => {
       })
       await update($, receipt, () => r)
       await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), isRunning: false }))
+      await refreshStatus($, cfg)
+      return done
+    }
+    if (await endTeamTurn($, id, e.reason)) {
       await refreshStatus($, cfg)
       return done
     }
@@ -576,6 +595,8 @@ export const register: Register = (on, options) => {
       models: isRoomEmpty('models', room),
       codex: isRoomEmpty('codex', room),
       skills: isRoomEmpty('skills', room),
+      team: isRoomEmpty('team', room),
+      tasks: isRoomEmpty('tasks', room),
     }
     const panels = cfg.panels.filter(p => !isEmpty[p])
     const decider = m.mode === 'auto' ? tx('classifier') : tx('you')
@@ -948,8 +969,10 @@ export const register: Register = (on, options) => {
 
     // ---- log: whatever rows the other panels leave, 4 to 8
     // Liveroom's panels: stacked in one column they all add up; side by side, the taller column counts.
-    const rowsOf = (p: 'models' | 'codex' | 'skills') => (panels.includes(p) ? roomRows(p, room, cfg.delegationRule) : 0)
-    const roomUsed = isWide ? Math.max(rowsOf('models'), rowsOf('codex') + rowsOf('skills')) : rowsOf('models') + rowsOf('codex') + rowsOf('skills')
+    const rowsOf = (p: RoomPanel) => (panels.includes(p) ? roomRows(p, room, cfg.delegationRule) : 0)
+    const roomUsed = isWide
+      ? Math.max(rowsOf('models') + rowsOf('tasks'), rowsOf('team') + rowsOf('codex') + rowsOf('skills'))
+      : rowsOf('models') + rowsOf('codex') + rowsOf('skills') + rowsOf('team') + rowsOf('tasks')
     const used = 2 + 5 + (showArchitect ? 6 + (archWarning ? 1 : 0) : 0) + 6 + (v.gateOpen ? 5 : 0) + (cards.length > cfg.maxCards ? 3 + Math.min(6, cards.length) : 8) + (expandedCard ? 8 : 0) + (lp.length ? 1 : 0) + 3 + roomUsed
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 40
     const nLog = logRows(bodyRows, used)
@@ -1048,8 +1071,9 @@ export const register: Register = (on, options) => {
 
     // Inline above the prompt (the terminal's main screen), the pane is a summary of at most 8 rows.
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
+    const crew = room.team.members.slice(-8)
     if (isMini) {
-      const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, 3)
+      const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, crew.length > 0 ? 2 : 3) // a team's row takes one of the three
       const wordy = tx(' {allowed} allowed · {cleared} {decider}{pending} · {denied} denied', { allowed: s.rule, cleared: s.cleared, decider, pending: s.ask > 0 ? tx(' · {n} pending', { n: s.ask }) : '', denied: s.deny })
       // When the words leave less than Flightdeck's 4 cells of strip, the counts turn to marks
       // (✓7 ?1 ✗2), so the denied count always shows: the Turkish words run long at 40 columns.
@@ -1100,6 +1124,14 @@ export const register: Register = (on, options) => {
           {cards.length > live.length ? (
             <Text color={C.faint} wrap="truncate">{tx('+{n} more agents · /liveroom layout compact for all', { n: cards.length - live.length })}</Text>
           ) : null}
+          {crew.length > 0 ? (
+            <Text wrap="truncate">
+              <Text color={ROOM_COLORS[cfg.palette].team}>{`${tx('team')} `}</Text>
+              {crew.map(m => (
+                <Text color={memberColorOf(C, m.state)}>{`${MEMBER_GLYPH[m.state]}${m.name} `}</Text>
+              ))}
+            </Text>
+          ) : null}
           {lp.length > 0 ? <Text dimColor>{tx('other loops {n} · {active} active', { n: lp.length, active: lp.filter(l => isLoopActive(l, now)).length })}</Text> : null}
           {!m.isRunning && r ? (
             <Text dimColor wrap="truncate">
@@ -1117,6 +1149,7 @@ export const register: Register = (on, options) => {
         { label: lower(cfg.gateLabel), color: C.gate },
         ...(showArchitect ? [{ label: lower(cfg.architectLabel), color: C.arch }] : []),
         ...(panels.includes('codex') ? [{ label: 'codex', color: ROOM_COLORS[cfg.palette].codex }] : []),
+        ...(panels.includes('team') ? [{ label: tx('team'), color: ROOM_COLORS[cfg.palette].team }] : []),
       ],
       W,
     )
@@ -1124,8 +1157,8 @@ export const register: Register = (on, options) => {
     const body = isWide ? (
       <Box flexDirection="column">
         <Box columnGap={2}>
-          {column(panels.filter(p => p === 'main' || p === 'models' || p === 'architect' || p === 'gate'), colW)}
-          {column(panels.filter(p => p === 'agents' || p === 'codex' || p === 'loops' || p === 'skills' || p === 'receipt'), colW)}
+          {column(panels.filter(p => p === 'main' || p === 'models' || p === 'architect' || p === 'gate' || p === 'tasks'), colW)}
+          {column(panels.filter(p => p === 'agents' || p === 'team' || p === 'codex' || p === 'loops' || p === 'skills' || p === 'receipt'), colW)}
         </Box>
         {panels.includes('log') ? logPanel(W) : null}
       </Box>
@@ -1230,6 +1263,43 @@ export const register: Register = (on, options) => {
     if (owner) await update($, plugins, p => bump(p, owner))
     return ran
   })
+
+  // ---------------------------------------------------------------- Liveroom: the team room
+
+  // Every message that went out, from the lead or a teammate, protocol messages included.
+  on('tool.call', { tool: 'SendMessage' }, async ($, e, next) => {
+    const ran = await next(e)
+    const result = ran.result as { success?: unknown } | null | undefined
+    if (ran.deny === undefined && ran.isError !== true && result?.success !== false) await noteMessage($, e)
+    return ran
+  })
+
+  // The task list, from whichever loop keeps it.
+  on('tool.call', { tool: 'TaskCreate' }, async ($, e, next) => {
+    const ran = await next(e)
+    const task = (ran.result as { task?: { id?: unknown; subject?: unknown } } | undefined)?.task
+    if (task) await update($, tasks, ts => addTask(tasksOf(ts), task))
+    return ran
+  })
+  on('tool.call', { tool: 'TaskUpdate' }, async ($, e, next) => {
+    const ran = await next(e)
+    if ((ran.result as { success?: unknown } | undefined)?.success === true) await update($, tasks, ts => updateTask(tasksOf(ts), e))
+    return ran
+  })
+  on('tool.call', { tool: 'TaskList' }, async ($, e, next) => {
+    const ran = await next(e)
+    const listed = (ran.result as { tasks?: unknown } | undefined)?.tasks
+    if (Array.isArray(listed)) await update($, tasks, ts => listTasks(tasksOf(ts), listed))
+    return ran
+  })
+
+  // The team's mailbox: the harness's notices (a teammate went idle, shut down, took a task), and
+  // the messages of teammates in panes of their own, whose tool calls never reach this process.
+  on('session.receive', async ($, e, next) => {
+    const got = await next(e)
+    if ('teammate' in e.origin && (await noteDelivery($, e.origin.teammate, e.origin.isVerified, e.text, e.agentId))) await refreshStatus($, cfg)
+    return got
+  })
 }
 
 // ---------------------------------------------------------------- Liveroom: state access
@@ -1241,6 +1311,8 @@ const steps = atom({ plugin: 'liveroom', key: 'steps' } as const, {})
 const skills = atom({ plugin: 'liveroom', key: 'skills' } as const, {})
 const plugins = atom({ plugin: 'liveroom', key: 'plugins' } as const, {})
 const rules = atom({ plugin: 'liveroom', key: 'rules' } as const, {})
+const team = atom({ plugin: 'liveroom', key: 'team' } as const, { members: [], messages: [] })
+const tasks = atom({ plugin: 'liveroom', key: 'tasks' } as const, [])
 /**
  * Text in the pane's language. The language changes only when a session starts (a reload starts
  * one too), so it lives here rather than in state: no hook pays a state read to translate.
@@ -1281,8 +1353,16 @@ function localizeLabels(cfg: Config, options: Readonly<Record<string, unknown>>)
 
 /** Everything the room's panels draw from, read leniently. */
 async function readRoom($: EngineInterface): Promise<RoomView> {
-  const [c, s, k, p, r] = await Promise.all([read($, codex), read($, steps), read($, skills), read($, plugins), read($, rules)])
-  return roomView(c, s, k, p, r)
+  const [c, s, k, p, r, t, ts] = await Promise.all([
+    read($, codex),
+    read($, steps),
+    read($, skills),
+    read($, plugins),
+    read($, rules),
+    read($, team),
+    read($, tasks),
+  ])
+  return roomView(c, s, k, p, r, t, ts)
 }
 
 /** Clears the room with the rest of the pane, on `/clear` and `/liveroom reset`. */
@@ -1292,6 +1372,77 @@ async function resetRoom($: EngineInterface) {
   await update($, skills, () => ({}))
   await update($, plugins, () => ({}))
   await update($, rules, () => ({}))
+  await update($, team, () => ({ members: [], messages: [] }))
+  await update($, tasks, () => [])
+}
+
+/** A teammate joins the team panel, working on the prompt it was spawned with. */
+async function joinTeammate($: EngineInterface, id: string, teammateId: string, model: string) {
+  const at = await $.clock.now()
+  await update($, team, t => joinTeam(teamOf(t), { id, teammateId, model }, at))
+  await say($, await whoIs($, id), tx('joined the team'), 'info', id)
+}
+
+/** A teammate's step: its first starts a turn, so it works. False for any other loop. */
+async function teamStep($: EngineInterface, id: string, index: number): Promise<boolean> {
+  if (!memberOf(teamOf(await read($, team)), id)) return false
+  if (index === 0) {
+    const at = await $.clock.now()
+    await update($, team, t => setState(teamOf(t), id, 'working', at))
+  }
+  return true
+}
+
+/** A teammate's turn ends in waiting for a message, or failed on an error. False for any other loop. */
+async function endTeamTurn($: EngineInterface, id: string, reason: string): Promise<boolean> {
+  if (!memberOf(teamOf(await read($, team)), id)) return false
+  const at = await $.clock.now()
+  await update($, team, t => setState(teamOf(t), id, turnEndState(reason), at))
+  return true
+}
+
+/** A SendMessage that went out: from the lead, a teammate, or another agent of the session. */
+async function noteMessage($: EngineInterface, e: { agentId?: string; to?: unknown; message?: unknown; summary?: unknown }) {
+  const was = teamOf(await read($, team))
+  const from = e.agentId ? (memberOf(was, e.agentId)?.name ?? 'agent') : LEAD
+  const msg = messageOf(e, from, await $.clock.now())
+  if (!msg) return
+  await update($, team, t => applyMessage(teamOf(t), msg))
+  const sender = memberNamed(was, from)
+  if (msg.kind === 'shutdown-response' && msg.approve === true && sender) await say($, shorten(sender.name, 14), tx('shut down'), 'info', sender.id)
+}
+
+/**
+ * A delivery from a teammate's mailbox: a harness notice sets a teammate's state or a task's owner;
+ * a message the harness here didn't write is a pane teammate's, which no tool call showed. True when
+ * a teammate's state changed.
+ */
+async function noteDelivery($: EngineInterface, sender: string, isVerified: boolean, text: string, to: string | undefined): Promise<boolean> {
+  const at = await $.clock.now()
+  const was = teamOf(await read($, team))
+  const notice = noticeOf(text, sender)
+  if (notice?.kind === 'assigned') {
+    const owner = to ? memberOf(was, to)?.name : LEAD
+    if (owner) await update($, tasks, ts => assignTask(tasksOf(ts), notice.taskId, notice.subject, owner))
+    return false
+  }
+  if (notice) {
+    const member = memberNamed(was, notice.from)
+    if (!member) return false
+    await update($, team, t => setState(teamOf(t), member.id, notice.kind === 'idle' ? 'idle' : 'ended', at))
+    if (notice.kind === 'ended' && member.state !== 'ended') await say($, shorten(member.name, 14), tx('shut down'), 'info', member.id)
+    return true
+  }
+  if (isVerified) return false // an in-process sender: its SendMessage call was counted
+  const msg = messageOf({ to: to ? (memberOf(was, to)?.name ?? 'agent') : LEAD, message: text }, sender, at)
+  const member = memberNamed(was, sender)
+  if (!msg) return false
+  // A pane teammate that sends is in a turn.
+  await update($, team, t => {
+    const next = applyMessage(teamOf(t), msg)
+    return member ? setState(next, member.id, 'working', at) : next
+  })
+  return Boolean(member)
 }
 
 /** A Codex run ends with its call: failed when refused, errored or thrown (`ran` null). */

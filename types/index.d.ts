@@ -119,6 +119,52 @@ export type CodexRun = {
   reachedBy?: 'and' | 'or' | null
 }
 
+/**
+ * A teammate's state: `working` in a turn, `idle` waiting for a message, `ended` once it shut down,
+ * `failed` when its turn died on an error.
+ */
+export type MemberState = 'working' | 'idle' | 'ended' | 'failed'
+
+/** One teammate of the session's agent team. */
+export type TeamMember = {
+  /** Its agent id: `agent.spawn`'s answer, the `agentId` its loop's events carry. */
+  id: string
+  /** Its name in the team, which SendMessage addresses it by (`scout`, `scout-2`). */
+  name: string
+  model: string
+  state: MemberState
+  /** When it entered its state. */
+  since: number
+  /** It runs in a terminal pane of its own: its turns raise no events here, so its state is inferred. */
+  isPane: boolean
+  /** Messages it sent. */
+  sent: number
+}
+
+/**
+ * One message between the lead and its teammates, or between teammates: `text` is the sender's
+ * summary or the message's first line. A protocol message is its kind, with the answer when it is one.
+ */
+export type TeamMessage = {
+  at: number
+  from: string
+  to: string
+  kind: 'text' | 'shutdown-request' | 'shutdown-response' | 'plan-response'
+  text: string
+  approve: boolean | null
+}
+
+/** The session's agent team, as the lead's events report it. */
+export type Team = { members: TeamMember[]; messages: TeamMessage[] }
+
+/** One task of the session's task list, as the Task tools report it. */
+export type TeamTask = {
+  id: string
+  subject: string
+  status: 'pending' | 'in_progress' | 'completed'
+  owner: string | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'liveroom': {
@@ -144,6 +190,10 @@ declare module 'claude-code' {
       plugins: Record<string, number>
       /** Agent id → why its spawn broke the delegation rule. */
       rules: Record<string, string>
+      /** The agent team's members and their messages. */
+      team: Team
+      /** The task list the Task tools keep. */
+      tasks: TeamTask[]
     }
   }
 }

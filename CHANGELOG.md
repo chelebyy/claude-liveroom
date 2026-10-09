@@ -1,5 +1,14 @@
 # Changelog
 
+## Liveroom 0.4.0
+
+- **team** panel: an agent team's teammates, ● working, ○ idle with how long it has waited, ■ shut down, ✗ failed, with the task each works on; ▣ marks one in a terminal pane of its own. Below them, the last three messages between the lead and its teammates, shutdown and plan answers included, each a summary or first line with credentials masked.
+- **tasks** panel: the task list the Task tools keep, work in progress first, then what waits, then the newest done, each with its owner.
+- A teammate no longer shows as a finished agent card after its first turn: teammates leave the agent cards for the team panel, so the agents header and the status line's `agents` count leave them out. The status line counts working teammates (`team 1/2`), and the inline summary gives the team a row, showing two agents instead of three when there is one.
+- Teammates in panes of their own run outside the lead's process. Their state is read from their messages and the team's idle and shutdown notices; see "What is inferred".
+- A message from another agent or session reaches the log as its tag and sender (`teammate message from scout`), not as your prompt: Claude Code now puts a note before it. A background architect's hand-back behind that note is read as its advice again.
+- The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.
+
 ## Liveroom 0.3.0
 
 - `language` option: `auto` (the default) follows Claude Code's own `language` setting, Turkish when it reads Turkish and English otherwise; `en` and `tr` pick one.

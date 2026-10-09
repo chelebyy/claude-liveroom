@@ -5,7 +5,7 @@
 
 **A Claude Code mod that puts a live room in your terminal**: context and cost, an advisor timeline, every permission check, and your subagents as cards or swimlanes. Every number comes from a real session event, and nothing leaves your machine.
 
-> Liveroom is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella, used under the MIT License. On top of Flightdeck 0.3.2 it adds the **models**, **codex** and **skills** panels and a ⚠ for subagents that silently inherit the main model; the screenshots below are still Flightdeck's. Coming next: an agent-team room and a Turkish UI option.
+> Liveroom is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella, used under the MIT License. On top of Flightdeck 0.3.2 it adds the **models**, **codex**, **skills**, **team** and **tasks** panels, a ⚠ for subagents that silently inherit the main model, and a Turkish UI; the screenshots below are still Flightdeck's.
 
 <p align="center">
   <img src="docs/media/demo.gif" alt="Flightdeck during a live session: five audit subagents fan out as cards, switch to swimlanes and finish, while the permission gate fills with checks" width="520">
@@ -57,7 +57,7 @@ https://github.com/user-attachments/assets/9ad0fcc3-c81c-427a-a743-f7b6c49f5885
 
 | Docked beside the transcript | Inline above the prompt |
 | --- | --- |
-| <img src="docs/media/docked-pane.png" alt="The docked pane: main model vitals, architect timeline, permission gate, five agents as swimlanes, last-turn receipt and session log" width="380"> | <img src="docs/media/inline-mini.png" alt="The inline mini layout: the model, context gauge, session cost and architect consults; the permission gate strip and totals; the last turn's duration, agents, edits, errors and cost" width="420"><br><br>On the main screen, without fullscreen, the pane is a summary of at most 8 rows; up to 3 agents join it when the session has subagents. |
+| <img src="docs/media/docked-pane.png" alt="The docked pane: main model vitals, architect timeline, permission gate, five agents as swimlanes, last-turn receipt and session log" width="380"> | <img src="docs/media/inline-mini.png" alt="The inline mini layout: the model, context gauge, session cost and architect consults; the permission gate strip and totals; the last turn's duration, agents, edits, errors and cost" width="420"><br><br>On the main screen, without fullscreen, the pane is a summary of at most 8 rows; up to 3 agents join it when the session has subagents, 2 when an agent team takes a row of its own. |
 
 | Panel | Shows | From |
 | --- | --- | --- |
@@ -65,7 +65,9 @@ https://github.com/user-attachments/assets/9ad0fcc3-c81c-427a-a743-f7b6c49f5885
 | **models** | requests per model and effort across the main loop and every subagent, ranked | `turn.step` |
 | **architect** | consults on a timeline, whether one is running, how long the last took; optionally the moment of each consult; the first line of a subagent architect's advice | a spawn of a matching agent type, or a matching server tool in the assistant's rows |
 | **gate** | one cell per permission check: green allowed without asking, blue decided by the auto-mode classifier or you and then run, amber pending, red ✗ denied, dim if made inside a subagent. Totals, and a drill-down per tool family with credentials masked | `tool.check`, settled by the `tool.call` around it |
-| **agents** | cards side by side while they fit: the task, type, live context and output tokens, steps, a running clock, `max_tokens` in red. Beyond that, swimlanes on one time axis | `agent.spawn`, `turn.step`, `tool.call`, `turn.complete` |
+| **agents** | cards side by side while they fit: the task, type, live context and output tokens, steps, a running clock, `max_tokens` in red. Beyond that, swimlanes on one time axis. An agent team's teammates are in the **team** panel instead | `agent.spawn`, `turn.step`, `tool.call`, `turn.complete` |
+| **team** | an agent team's teammates: ● working, ○ idle (waiting for a message) with a clock, ■ shut down, ✗ failed; the task each works on, ▣ for one in a terminal pane of its own; the last three messages between the lead and its teammates, shutdown and plan answers included | `agent.spawn`, `turn.step`, `turn.complete`, `tool.call` on `SendMessage`, `session.receive` |
+| **tasks** | the task list the Task tools keep: work in progress first (◐), then what waits (○), then the newest done (✓), each with its owner; done of total in the title | `tool.call` on `TaskCreate`, `TaskUpdate` and `TaskList`; task assignment notices |
 | **codex** | work handed to Codex, through the `codex:codex-rescue` agent or `codex exec` / `codex review` in the shell: kind (rescue, consult, exec, review), model, effort, a running clock and the same status colours as the cards (◐ running, ✓ done, ✗ failed), ◌ bg for one sent off with `&`, and ■ for one that ended without a verdict; ⚠ when a hand-off names no model or effort | `tool.call` on `Agent` and `Bash`, background task notifications |
 | **loops** | model loops that match no card: workflow agents, compactions, memory forks | `turn.step` ids no card claims |
 | **skills** | skills called, and plugins used through their skills, agent types and MCP tools | `tool.call` |
@@ -114,8 +116,9 @@ Liveroom only watches. Every hook passes its event on unchanged: it never denies
 | your Claude Code `language` setting, once per session, when `language` is `auto` | `$.settings.read()` |
 | advisor tool calls in the assistant's responses (their content is encrypted) | `session.append` |
 | background task notifications: which call a task came from and how it ended | `session.append` |
+| deliveries from an agent team's mailboxes: who sent them, and their text, for a one-line summary or a notice (went idle, shut down, took a task) | `session.receive` |
 
-What it keeps: short summaries (a tool name plus a path or command, with credentials masked) and counters in session state, which ends with the session. It shows a toast when a subagent runs on the main model because its spawn named none. It makes **no** network requests, runs no processes, reads and writes no files (it asks Claude Code for its merged settings only to read `language`), stores nothing across sessions, and calls no model. `claude plugin validate .` prints exactly what it hooks and calls.
+What it keeps: short summaries (a tool name plus a path or command, a message's summary or first line, with credentials masked) and counters in session state, which ends with the session. It shows a toast when a subagent runs on the main model because its spawn named none. It makes **no** network requests, runs no processes, reads and writes no files (it asks Claude Code for its merged settings only to read `language`), stores nothing across sessions, and calls no model. `claude plugin validate .` prints exactly what it hooks and calls.
 
 ## What is inferred, not measured
 
@@ -127,6 +130,8 @@ What it keeps: short summaries (a tool name plus a path or command, with credent
 - **Codex runs end with what the pane can see.** A `codex:codex-rescue` run ends when the rescue subagent finishes, even if that agent left Codex working in the background. A `codex exec` in a background shell ends when Claude Code's task notification for it arrives. One sent off with `&` on its own line outlives its shell, so no event says when it ends: it shows `◌ bg` and is counted apart from the running ones. A shell's exit status is its last command's, so a codex followed by another command (`| tail`, `; echo`) ends as `■`, without a verdict. So does a codex behind `||` whose line succeeded: the success could be the command before it, which kept codex from running. Behind `&&`, a failure counts as codex's, since the step before it (`cd repo`) nearly always succeeds. Lines inside a here-document are data and never count as calls.
 - **The shell reader is a heuristic, not a shell.** It reads quotes, here-documents, redirections, `&` lists, `wait`, line continuations, shell keywords (`if codex …`, `do codex …`) and common wrappers (`env`, `timeout`, `nohup`, `sudo`, `nice`). `wait` with a job id counts as waiting for codex, whichever job it names. It does not look inside `bash -c "…"`, `$(…)`, subshells `( … )` or `xargs`, and a comment after a codex call counts as a command, so that run ends as `■`.
 - **A rescue's model and effort** are read from `--model` and `--effort` anywhere in its prompt, because the codex-rescue agent treats them as runtime controls wherever they appear. A task that mentions those flags in prose is read the same way.
+- **A teammate's state is read from its turns and messages.** It works from its first step until its turn ends, then waits; a message sent to a waiting teammate marks it working before its next turn starts. `$.agent.list()` is not used: it says `running` between turns.
+- **Teammates in panes of their own** (`teammateMode` `tmux`, or `auto` inside tmux) run outside this process, so their turns and tool calls raise no events here. The pane reads them from what reaches the lead: a message from one means it is working, its idle notice that it waits, its shutdown notice that it is gone. Their task changes show when the lead lists the tasks, and messages between two such teammates don't show. One whose pane closes or dies without a notice keeps its last state. This was checked live with in-process teammates only.
 - **The delegation rule sees the call, not the agent definition.** ⚠ means the spawn named no model and the agent runs on the main model, or, for a subagent's own spawn, on its parent's. That holds even when the definition picked that same model itself. Turn it off with `delegationRule: false`.
 
 ## Configure
@@ -139,14 +144,14 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | `matchDescriptions` | `false` | also match agent descriptions, not just type names |
 | `architectLabel` | `ARCHITECT` | the architect's name in the pane (`MİMAR` in Turkish) |
 | `gateLabel` | `GATE` | the permission panel's name (`İZİN` in Turkish) |
-| `panels` | `main,models,architect,gate,agents,codex,loops,skills,receipt,log` | which panels show, in order |
+| `panels` | `main,models,architect,gate,agents,team,tasks,codex,loops,skills,receipt,log` | which panels show, in order |
 | `layout` | `auto` | `mini`, `compact`, `wide`, or `auto` (mini inline, wide from 110 columns docked) |
 | `maxCards` | `3` | cards side by side before swimlanes (1–6); fewer if the pane is too narrow |
 | `motion` | `while-active` | `off` keeps connectors still |
 | `moments` | `true` | show the inferred consult moments |
 | `palette` | `theme` | `pastel` uses fixed colours tuned for dark terminals |
 | `openOnStart` | `true` | ask to open the pane when a session starts |
-| `statusLine` | `true` | context, running agents, consults and denials in the status line |
+| `statusLine` | `true` | context, running agents, working teammates, consults and denials in the status line |
 | `delegationRule` | `true` | ⚠ and a toast for a subagent whose spawn names no model and that runs on the main model; ⚠ for a Codex hand-off without model or effort |
 | `language` | `auto` | the pane's language: `en`, `tr`, or `auto`, which follows Claude Code's own `language` setting (Turkish when it reads Turkish, English otherwise); it is read when a session starts; log lines already written keep their text, while their author column follows the current language |
 
@@ -171,8 +176,8 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | [`hooks/core.ts`](hooks/core.ts) | every reducer, formatter and layout rule as pure functions, so behaviour is testable directly |
 | [`hooks/rail.tsx`](hooks/rail.tsx), [`hooks/elapsed.tsx`](hooks/elapsed.tsx) | surface modules: animated connectors and live clocks that redraw only themselves, on the surface's own frame clock |
 | [`types/index.d.ts`](types/index.d.ts) | the state contract |
-| [`hooks/room/`](hooks/room) | Liveroom's additions: Codex call parsing, tallies and the models, codex and skills panels, as pure functions |
-| [`tests/`](tests) | 76 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
+| [`hooks/room/`](hooks/room) | Liveroom's additions: Codex call parsing, tallies, the agent team and its task list, the models, codex, skills, team and tasks panels, and the Turkish table, as pure functions |
+| [`tests/`](tests) | 89 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
 
 State lives in `$.state` atoms. Every read is merged over defaults, so a missing or older field never breaks the pane; an update that changes the state's shape may still reset its counters once. New to mods? Start with [Claude Code mods](https://claude.com/blog/claude-code-mods) and [Getting started with Claude Code mods](https://claude.dev/blog/getting-started-with-claude-code-mods/).
 
