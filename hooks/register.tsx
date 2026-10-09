@@ -58,7 +58,7 @@ import {
 import type { Config, Panel } from './core'
 import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, roomRows } from './room/panels'
 import type { CodexRun } from './room/core'
-import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
+import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
 
@@ -649,6 +649,8 @@ export const register: Register = (on, options) => {
 
     // ---- architect
     const lastConsult = a.consults[a.consults.length - 1]
+    // An architect agent has no card: its delegation warning shows under its last consult.
+    const archWarning = lastConsult ? ruleOf(lastConsult.id) : undefined
     const architectPanel = (w: number) => {
       const tl = consultTimeline(a, now, Math.max(8, w - 4))
       return (
@@ -674,6 +676,11 @@ export const register: Register = (on, options) => {
           ) : (
             <Text dimColor>not consulted yet</Text>
           )}
+          {archWarning ? (
+            <Text color={C.amber} wrap="truncate">
+              {`⚠ ${archWarning}`}
+            </Text>
+          ) : null}
           {cfg.moments ? (
             <Box flexWrap="wrap" columnGap={2}>
               {(['before a plan', 'error repeats', 'before done'] as const).map(mo => {
@@ -927,7 +934,7 @@ export const register: Register = (on, options) => {
     // Liveroom's panels: stacked in one column they all add up; side by side, the taller column counts.
     const rowsOf = (p: 'models' | 'codex' | 'skills') => (panels.includes(p) ? roomRows(p, room, cfg.delegationRule) : 0)
     const roomUsed = isWide ? Math.max(rowsOf('models'), rowsOf('codex') + rowsOf('skills')) : rowsOf('models') + rowsOf('codex') + rowsOf('skills')
-    const used = 2 + 5 + (showArchitect ? 6 : 0) + 6 + (v.gateOpen ? 5 : 0) + (cards.length > cfg.maxCards ? 3 + Math.min(6, cards.length) : 8) + (expandedCard ? 8 : 0) + (lp.length ? 1 : 0) + 3 + roomUsed
+    const used = 2 + 5 + (showArchitect ? 6 + (archWarning ? 1 : 0) : 0) + 6 + (v.gateOpen ? 5 : 0) + (cards.length > cfg.maxCards ? 3 + Math.min(6, cards.length) : 8) + (expandedCard ? 8 : 0) + (lp.length ? 1 : 0) + 3 + roomUsed
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 40
     const nLog = logRows(bodyRows, used)
     const shownLines = (viewed ? lines.filter(l => l.agentId === viewed) : lines).slice(-nLog)
@@ -1273,6 +1280,6 @@ async function noteSpawn(
     return
   }
   if (!isRuleOn || e.fork || e.model !== undefined || started.model !== e.parentModel) return
-  await update($, rules, r => ({ ...r, [id]: 'no model in the call, runs on the main model' }))
+  await update($, rules, r => noteRule(r, id, 'no model in the call, runs on the main model'))
   $.ui.toast(`⚠ ${e.subagentType}: no model in the call, runs on ${started.model}`)
 }

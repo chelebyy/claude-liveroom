@@ -12,6 +12,7 @@ import {
   meter,
   parseCodexCalls,
   parseCodexCli,
+  noteRule,
   pluginOfName,
   pluginOfTool,
   pushRun,
@@ -160,6 +161,14 @@ test('task notifications are read for the call they end and how it ended', () =>
   let two = [cliRun('t6', a!, 1), cliRun('t6:2', b!, 1)]
   expect(endNoticed(two, taskNotices(notice('t6', 'completed')), 9).map(r => r.status)).toEqual(['ended', 'done'])
   expect(endNoticed(two, taskNotices(notice('t6', 'killed')), 9).map(r => r.status)).toEqual(['failed', 'failed'])
+})
+
+test('rule notes keep the newest, as many as the agent cards', () => {
+  let rules: Record<string, string> = {}
+  for (let i = 0; i < 30; i++) rules = noteRule(rules, `a${i}`, 'x')
+  expect(Object.keys(rules).length).toBe(24)
+  expect(Object.keys(rules)[0]).toBe('a6')
+  expect(Object.keys(noteRule(rules, 'a6', 'y')).pop()).toBe('a6') // a fresh note moves to the end
 })
 
 test('plugins are read from names and MCP tools; tallies rank and draw', () => {
@@ -366,6 +375,17 @@ test('a codex piped into another command ends without a verdict; each call on a 
   expect(await ui.find({ text: /^■ $/ })).toBeDefined() // the piped run and the review followed by another call
   expect(await ui.find({ text: /^✓ $/ })).toBeDefined() // the last call owns the exit status
   expect(await ui.find({ text: /^✗ $/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('an architect that silently inherits the main model shows ⚠ in the architect panel', async ($, on) => {
+  engine(on)
+  on('ui.toast', () => ({ value: undefined }))
+  on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-opus-5-5', agentId: 'arch1' }))
+  await $.turn.start({ text: 'review it', turnId: 'A1' })
+  await $.agent.spawn(spawn('fable-advisor:fable-advisor', 'final review'))
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /⚠ no model in the call, runs on the main model/ })).toBeDefined()
   await ui.unmount()
 })
 

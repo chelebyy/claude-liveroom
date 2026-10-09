@@ -409,6 +409,12 @@ export function pushRun(runs: readonly CodexRun[], run: CodexRun, keep = 30): Co
   return kept
 }
 
+/** Records the rule's note for an agent, keeping the newest `keep`, as many as the agent cards keep. */
+export function noteRule(rules: Readonly<Record<string, string>>, id: string, note: string, keep = 24): Record<string, string> {
+  const rest = Object.entries(rules).filter(([k]) => k !== id)
+  return Object.fromEntries([...rest, [id, note] as const].slice(-keep))
+}
+
 export type Tally = Record<string, number>
 
 export function bump(tally: Readonly<Tally>, key: string): Tally {
