@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import { clockAblative, isKey, langOf, makeT } from '../hooks/room/i18n'
+import { openerOf } from '../hooks/room/core'
 import { loopDots } from '../hooks/room/panels'
 
 test('the language comes from the option, or under auto from Claude Code\'s own setting', () => {
@@ -249,5 +250,44 @@ test('language tr: the inline gate summary turns to marks when its words would n
   await ui.unmount()
   ui = await $.ui.mount(mini(100))
   expect(await ui.find({ text: /1 reddedildi/ })).toBeDefined() // room for the words
+  await ui.unmount()
+})
+
+test('a tagged turn opener is read for its tag and sender, as promptLine reads them', () => {
+  expect(openerOf('<agent-message from="a1492260715f3be7b"> hi')).toEqual({ label: 'agent message', from: 'a1492260' })
+  expect(openerOf('<task-notification>\n<task-id>b1</task-id>')).toEqual({ label: 'task notification', from: null })
+  expect(openerOf('fix the parser')).toBeNull()
+})
+
+for (const [language, line] of [
+  ['tr', /^ajan mesajı · a1492260$/],
+  ['en', /^agent message from a1492260$/],
+] as const) {
+  test(`language ${language}: a tagged turn opener's log line`, { options: { language, openOnStart: false } }, async ($, on) => {
+    engine(on)
+    await $.session.start(START)
+    await $.turn.start({ text: '<agent-message from="a1492260715f3be7b"> hi', turnId: 'M1' })
+    await $.turn.start({ text: '<some-new-tag> x', turnId: 'M2' })
+    const ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+    expect(await ui.find({ text: line })).toBeDefined()
+    expect(await ui.find({ text: /^some new tag$/ })).toBeDefined() // an unknown tag stays as written
+    await ui.unmount()
+  })
+}
+
+test('language tr: the gate totals turn to marks when their words would run past the frame', { options: { language: 'tr', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  on('tool.check', (_$, e) => ({ decision: String(e.tool_use_id).startsWith('a') ? 'allow' : 'deny', reason: 'no' }))
+  await $.session.start(START)
+  for (let i = 0; i < 10; i++) {
+    await $.tool.check({ tool: 'Read', input: { file_path: `/a${i}` }, tool_use_id: `a${i}` })
+    await $.tool.check({ tool: 'Write', input: { file_path: `/d${i}`, content: '' }, tool_use_id: `d${i}` })
+  }
+  let ui = await $.ui.mount({ ...pane(40), surface: 'terminal' })
+  expect(await ui.find({ text: /^✗ 10$/ })).toBeDefined()
+  expect(await ui.find({ text: /^✗ 10 reddedildi$/ })).toBeUndefined()
+  await ui.unmount()
+  ui = await $.ui.mount({ ...pane(100), surface: 'terminal' })
+  expect(await ui.find({ text: /^✗ 10 reddedildi$/ })).toBeDefined()
   await ui.unmount()
 })

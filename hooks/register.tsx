@@ -57,7 +57,7 @@ import {
 import type { Config, Panel } from './core'
 import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, loopDots, roomRows } from './room/panels'
 import type { CodexRun } from './room/core'
-import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
+import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, openerOf, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
 import type { Lang, LanguageOption, T } from './room/i18n'
 import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
@@ -309,7 +309,7 @@ export const register: Register = (on, options) => {
       if (advice && advice !== a.lastAdvice) await noteAdvice($, cfg, advice)
     } else if (e.text) {
       const p = promptLine(e.text)
-      await say($, p.who, p.text)
+      await say($, p.who, engineLine(e.text) ?? p.text)
     }
     return next(e)
   })
@@ -714,6 +714,10 @@ export const register: Register = (on, options) => {
     const verdictColor = (c: Check) =>
       c.verdict === 'rule' ? C.gate : c.verdict === 'cleared' ? C.cleared : c.verdict === 'ask' ? C.amber : C.warn
     const gatePanel = (w: number) => {
+      // The totals keep to one row: when their words run past the frame (4 columns of border and
+      // padding), as the Turkish do at 40 columns, the colored marks carry the counts alone.
+      const wordy = [tx(' {n} allowed  ', { n: s.rule }), ` ${s.cleared} ${decider}  `, s.ask > 0 ? tx('■ {n} pending  ', { n: s.ask }) : '', tx('✗ {n} denied', { n: s.deny })]
+      const totals = 2 + wordy.join('').length > w - 4 ? [` ${s.rule}  `, ` ${s.cleared}  `, s.ask > 0 ? `■ ${s.ask}  ` : '', `✗ ${s.deny}`] : wordy
       const strip = g.recent.slice(-Math.max(8, w - 4))
       const open = v.gateOpen
       return (
@@ -734,11 +738,11 @@ export const register: Register = (on, options) => {
           </Box>
           <Text wrap="truncate">
             <Text color={C.gate}>■</Text>
-            <Text dimColor>{tx(' {n} allowed  ', { n: s.rule })}</Text>
+            <Text dimColor>{totals[0]}</Text>
             <Text color={C.cleared}>■</Text>
-            <Text dimColor>{` ${s.cleared} ${decider}  `}</Text>
-            {s.ask > 0 ? <Text color={C.amber}>{tx('■ {n} pending  ', { n: s.ask })}</Text> : null}
-            <Text color={s.deny > 0 ? C.warn : C.dim}>{tx('✗ {n} denied', { n: s.deny })}</Text>
+            <Text dimColor>{totals[1]}</Text>
+            {s.ask > 0 ? <Text color={C.amber}>{totals[2]}</Text> : null}
+            <Text color={s.deny > 0 ? C.warn : C.dim}>{totals[3]}</Text>
             {w >= 80 && g.recent.some(c => c.inSubagent) ? <Text color={C.faint}>{tx('  dim: in subagents')}</Text> : null}
           </Text>
           <Box columnGap={2}>
@@ -1248,6 +1252,17 @@ async function noteLanguage($: EngineInterface, option: LanguageOption) {
   const setting = option === 'auto' ? await $.settings.read().then(s => s.language, () => undefined) : undefined
   paneLang = langOf(option, setting)
   tx = makeT(paneLang)
+}
+
+/**
+ * A tagged turn opener's log line in the pane's language: a known tag translated, an unknown one as
+ * written, the sender's id unchanged. Null for the user's own words, which the log keeps as typed.
+ */
+function engineLine(text: string): string | null {
+  const o = openerOf(text)
+  if (!o) return null
+  const label = isKey(o.label) ? tx(o.label) : o.label
+  return shorten(o.from ? tx('{label} from {from}', { label, from: o.from }) : label, 70)
 }
 
 /**
