@@ -26,10 +26,12 @@ export const TR = {
   '⚠ {type}: no model in the call, runs on {model}': '⚠ {type}: çağrıda model yok, {model} üzerinde çalışıyor',
   '⚠ {type}: no model in the call, inherits {model} from its parent': '⚠ {type}: çağrıda model yok, {model} modelini üst ajandan alıyor',
   // ---- Flightdeck panels
+  ARCHITECT: 'MİMAR',
+  GATE: 'İZİN',
   'ctx {n}%': 'ctx {n}%',
   'agents {running}/{total}': 'ajanlar {running}/{total}',
   advising: 'danışıyor',
-  'denied {n}': 'reddedildi {n}',
+  'denied {n}': '{n} reddedildi',
   'before a plan': 'plan öncesi',
   'error repeats': 'hata tekrarı',
   'before done': 'bitiş öncesi',
@@ -70,7 +72,7 @@ export const TR = {
   'ctx ': 'ctx ',
   'on call': 'hazırda',
   'consults ': 'danışma ',
-  'consulting since {t}': '{t} itibarıyla danışılıyor',
+  'consulting since {t}': '{t}{abl} beri danışıyor',
   'last {d} ago · took {d2}': 'son: {d} önce · {d2} sürdü',
   'not consulted yet': 'henüz danışılmadı',
   '(inferred)': '(tahmini)',
@@ -136,6 +138,27 @@ const fill = (text: string, vars?: Vars) => (vars ? text.replace(/\{(\w+)\}/g, (
 
 export function makeT(lang: Lang): T {
   return (key, vars) => fill(lang === 'tr' ? TR[key] : key, vars)
+}
+
+const UNITS = ['', 'bir', 'iki', 'üç', 'dört', 'beş', 'altı', 'yedi', 'sekiz', 'dokuz']
+const TENS = ['', 'on', 'yirmi', 'otuz', 'kırk', 'elli']
+
+/** The ablative suffix a Turkish word takes: `dan`, `den`, `tan` or `ten`, by its last vowel and sound. */
+function ablativeOf(word: string): string {
+  const vowel = [...word].reverse().find(c => 'aıoueiöü'.includes(c)) ?? 'a'
+  const consonant = /[çfhkpsşt]$/.test(word) ? 't' : 'd'
+  return `${consonant}${'aıou'.includes(vowel) ? 'a' : 'e'}n`
+}
+
+/**
+ * The ablative suffix for a `HH:MM:SS` clock as it is read aloud, apostrophe included: its last part
+ * that isn't zero names the last word ("12:03:45" ends on "beş", so `'ten`); all zeros read "sıfır".
+ * Nothing for a clock that isn't one, such as `--:--:--`.
+ */
+export function clockAblative(clock: string): string {
+  if (!/^\d{1,2}(:\d{2}){1,2}$/.test(clock)) return ''
+  const n = [...clock.split(':')].reverse().map(Number).find(x => x > 0)
+  return `'${ablativeOf(n === undefined ? 'sıfır' : n % 10 > 0 ? UNITS[n % 10]! : TENS[Math.floor(n / 10) % 6]!)}`
 }
 
 /** Whether a stored text, such as a rule note, has a translation. */

@@ -137,8 +137,8 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | --- | --- | --- |
 | `architectPattern` | `advisor\|architect` | case-insensitive regex for agent types and server tools that count as the architect |
 | `matchDescriptions` | `false` | also match agent descriptions, not just type names |
-| `architectLabel` | `ARCHITECT` | the architect's name in the pane |
-| `gateLabel` | `GATE` | the permission panel's name |
+| `architectLabel` | `ARCHITECT` | the architect's name in the pane (`MİMAR` in Turkish) |
+| `gateLabel` | `GATE` | the permission panel's name (`İZİN` in Turkish) |
 | `panels` | `main,models,architect,gate,agents,codex,loops,skills,receipt,log` | which panels show, in order |
 | `layout` | `auto` | `mini`, `compact`, `wide`, or `auto` (mini inline, wide from 110 columns docked) |
 | `maxCards` | `3` | cards side by side before swimlanes (1–6); fewer if the pane is too narrow |
@@ -172,7 +172,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | [`hooks/rail.tsx`](hooks/rail.tsx), [`hooks/elapsed.tsx`](hooks/elapsed.tsx) | surface modules: animated connectors and live clocks that redraw only themselves, on the surface's own frame clock |
 | [`types/index.d.ts`](types/index.d.ts) | the state contract |
 | [`hooks/room/`](hooks/room) | Liveroom's additions: Codex call parsing, tallies and the models, codex and skills panels, as pure functions |
-| [`tests/`](tests) | 63 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
+| [`tests/`](tests) | 67 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
 
 State lives in `$.state` atoms. Every read is merged over defaults, so a missing or older field never breaks the pane; an update that changes the state's shape may still reset its counters once. New to mods? Start with [Claude Code mods](https://claude.com/blog/claude-code-mods) and [Getting started with Claude Code mods](https://claude.dev/blog/getting-started-with-claude-code-mods/).
 

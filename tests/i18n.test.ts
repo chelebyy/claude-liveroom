@@ -1,7 +1,7 @@
 import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
-import { isKey, langOf, makeT } from '../hooks/room/i18n'
+import { clockAblative, isKey, langOf, makeT } from '../hooks/room/i18n'
 
 test('the language comes from the option, or under auto from Claude Code\'s own setting', () => {
   expect(langOf('en', 'Turkish')).toBe('en')
@@ -17,11 +17,29 @@ test('text fills its values; English is the key itself', () => {
   expect(isKey('something else')).toBe(false)
 })
 
-const engine = (on: On) => {
+test('a clock takes the suffix of its last spoken word', () => {
+  const cases: [string, string][] = [
+    ['12:03:45', 'ten'], // beş
+    ['12:03:06', 'dan'], // altı
+    ['12:03:00', 'ten'], // üç
+    ['09:15:40', 'tan'], // kırk
+    ['12:40:20', 'den'], // yirmi
+    ['10:00:00', 'dan'], // on
+    ['00:00:00', 'dan'], // sıfır
+  ]
+  for (const [clock, suffix] of cases) expect(clockAblative(clock)).toBe(`'${suffix}`)
+  expect(clockAblative('--:--:--')).toBe('') // no clock yet: no suffix
+})
+
+/** The world beneath the plugin; `statuses` collects what the status line was set to. */
+const engine = (on: On, statuses?: string[]) => {
   mock.clock(on)
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('session.start', (_$, e) => e)
-  on('ui.status', () => ({ value: undefined }))
+  on('ui.status', (_$, e) => {
+    if (statuses && typeof e.text === 'string') statuses.push(e.text)
+    return { value: undefined }
+  })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
 }
@@ -118,6 +136,7 @@ test('language tr: four agents keep lanes and a failed glyph at 40 columns', { o
   await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'TR2', agentId: 'tr1', reason: 'error' } as never)
   const ui = await $.ui.mount({ ...pane(40), surface: 'terminal' })
   expect(await ui.find({ text: /ajanlar · 3 çalışıyor · 4 toplam/ })).toBeDefined()
+  expect(await ui.find({ text: /genişlet/ })).toBeUndefined() // the hint gives way at 40 columns
   expect(await ui.find({ text: /agents ·|running|total/ })).toBeUndefined()
   expect(await ui.find({ text: /━/ })).toBeDefined()
   expect(await ui.find({ text: /^✗ $/ })).toBeDefined()
@@ -137,5 +156,54 @@ test('language tr: the gate rows open on the first letter of their Turkish label
   expect(hotkeys.map(p => [String(p?.label).split(' ')[0], p?.hotkey])).toEqual([['dosya', 'd'], ['kabuk', 'k'], ['başka', 'b']])
   await ui.press({ key: 'gate-shell' })
   expect(await ui.find({ text: /make test/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('language tr: the architect and gate take Turkish names, lower-cased the Turkish way', { options: { language: 'tr', openOnStart: false } }, async ($, on) => {
+  const statuses: string[] = []
+  engine(on, statuses)
+  on('tool.check', () => ({ decision: 'deny', reason: 'no' }))
+  on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-fable-5-1', agentId: 'adv1' }))
+  await $.session.start(START)
+  await $.turn.start({ text: 'incele', turnId: 'A1' })
+  await $.agent.spawn({ prompt: 'p', description: 'final review', subagentType: 'fable-advisor:fable-advisor', model: 'claude-fable-5-1', tool_use_id: 'tu-a', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false } as never)
+  await $.tool.check({ tool: 'Bash', input: { command: 'rm -rf /' }, tool_use_id: 'k1' })
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /MİMAR · danışıyor/ })).toBeDefined()
+  expect(await ui.find({ text: /--:--:-- beri danışıyor/ })).toBeDefined() // the test clock is at 0
+  expect(await ui.find({ text: /İZİN · izinler/ })).toBeDefined()
+  expect(await ui.find({ text: /\u0307/ })).toBeUndefined() // no stray combining dot from lower-casing İ
+  await ui.unmount()
+  expect(statuses.at(-1)).toMatch(/mimar danışıyor · 1 reddedildi/)
+})
+
+test('language tr: a label the user named stays theirs, and an English one lower-cases the English way', { options: { language: 'tr', gateLabel: 'KAPI', architectLabel: 'REVIEWER', openOnStart: false } }, async ($, on) => {
+  const statuses: string[] = []
+  engine(on, statuses)
+  on('tool.check', () => ({ decision: 'allow' }))
+  on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-fable-5-1', agentId: 'adv1' }))
+  await $.session.start(START)
+  await $.turn.start({ text: 'incele', turnId: 'A1' })
+  await $.agent.spawn({ prompt: 'p', description: 'final review', subagentType: 'fable-advisor:fable-advisor', model: 'claude-fable-5-1', tool_use_id: 'tu-a', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false } as never)
+  expect(statuses.at(-1)).toMatch(/^reviewer danışıyor/) // not "revıewer"
+  await $.tool.check({ tool: 'Read', input: { file_path: '/a' }, tool_use_id: 'k1' })
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /KAPI · izinler/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('language en: the agents hint still fits beside its header at 40 columns', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  on('ui.toast', () => ({ value: undefined }))
+  let n = 0
+  on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-opus-5-5', agentId: `en${++n}` }))
+  await $.session.start(START)
+  await $.turn.start({ text: 'go', turnId: 'EN1' })
+  for (const description of ['one', 'two', 'three', 'four']) {
+    await $.agent.spawn({ prompt: description, description, subagentType: 'Explore', model: 'claude-haiku-5-5', tool_use_id: `tu-${description}`, provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false } as never)
+  }
+  const ui = await $.ui.mount({ ...pane(40), surface: 'terminal' })
+  expect(await ui.find({ text: /agents · 4 running · 4 total/ })).toBeDefined()
+  expect(await ui.find({ text: /1-\d expand/ })).toBeDefined()
   await ui.unmount()
 })

@@ -4,6 +4,9 @@
 
 - `language` option: `auto` (the default) follows Claude Code's own `language` setting, Turkish when it reads Turkish and English otherwise; `en` and `tr` pick one.
 - Under `tr` the whole pane speaks Turkish: Flightdeck's panels, the log, the status line, `/liveroom` replies, the room panels, the delegation warnings and their toasts. The gate's drill-down keys follow the Turkish labels: `d` `k` `b` for dosya, kabuk, başka.
+- Under `tr`, the architect and gate panels are named MİMAR and İZİN unless `architectLabel` or `gateLabel` names them; labels lower-case the Turkish way ("mimar", not "mi̇mar").
+- A consult in progress reads "12:03:45'ten beri danışıyor", the suffix following the clock as it is read aloud.
+- The agents header's `1-n expand` hint gives way when it can't share the row.
 - English output is unchanged.
 
 ## Liveroom 0.2.0

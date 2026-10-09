@@ -58,8 +58,8 @@ import type { Config, Panel } from './core'
 import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, roomRows } from './room/panels'
 import type { CodexRun } from './room/core'
 import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
-import type { LanguageOption, T } from './room/i18n'
-import { isKey, langOf, makeT } from './room/i18n'
+import type { Lang, LanguageOption, T } from './room/i18n'
+import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
 
@@ -142,7 +142,7 @@ async function refreshStatus($: EngineInterface, cfg: Config) {
   const parts = [
     u.pct !== null ? tx('ctx {n}%', { n: Math.round(u.pct) }) : null,
     cards.length > 0 ? tx('agents {running}/{total}', { running, total: cards.length }) : null,
-    a.consults.length > 0 || a.ids.length > 0 ? `${cfg.architectLabel.toLowerCase()} ${isAdvising(a) ? tx('advising') : a.consults.length}` : null,
+    a.consults.length > 0 || a.ids.length > 0 ? `${lower(cfg.architectLabel)} ${isAdvising(a) ? tx('advising') : a.consults.length}` : null,
     s.deny > 0 ? tx('denied {n}', { n: s.deny }) : null,
   ]
   // Only fields with something to say; with none, no status entry at all.
@@ -162,7 +162,7 @@ async function consultStarted($: EngineInterface, cfg: Config, id: string, via: 
   const at = await $.clock.now()
   await update($, architect, a => startConsult(normalize(DEFAULT_ARCHITECT, a), { id, at, moment, via }))
   if (moment === 'before done') await update($, turn, x => ({ ...normalize(DEFAULT_TURN, x), isReviewing: true }))
-  await say($, cfg.architectLabel.toLowerCase(), cfg.moments ? tx('{moment} · {via}', { moment: tx(moment), via }) : tx('consulted · {via}', { via }), 'consult')
+  await say($, lower(cfg.architectLabel), cfg.moments ? tx('{moment} · {via}', { moment: tx(moment), via }) : tx('consulted · {via}', { via }), 'consult')
   await refreshStatus($, cfg)
 }
 
@@ -172,13 +172,13 @@ async function consultEnded($: EngineInterface, cfg: Config, advice: string | nu
   const text = first ? shorten(first.replace(/^[#>*\s-]+/, ''), 160) : null
   await update($, architect, a => endConsult(normalize(DEFAULT_ARCHITECT, a), at, text, id))
   await update($, turn, t => ({ ...normalize(DEFAULT_TURN, t), isReviewing: false }))
-  await say($, cfg.architectLabel.toLowerCase(), text ? tx('advice: {text}', { text: shorten(text, 60) }) : tx('advice returned'), 'consult')
+  await say($, lower(cfg.architectLabel), text ? tx('advice: {text}', { text: shorten(text, 60) }) : tx('advice returned'), 'consult')
   await refreshStatus($, cfg)
 }
 
 async function noteAdvice($: EngineInterface, cfg: Config, advice: string) {
   await update($, architect, x => ({ ...normalize(DEFAULT_ARCHITECT, x), lastAdvice: advice }))
-  await say($, cfg.architectLabel.toLowerCase(), tx('advice: {text}', { text: shorten(advice, 60) }), 'consult')
+  await say($, lower(cfg.architectLabel), tx('advice: {text}', { text: shorten(advice, 60) }), 'consult')
 }
 
 async function isArchitectType($: EngineInterface, cfg: Config, type: string) {
@@ -225,6 +225,7 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     await noteLanguage($, cfg.language)
+    localizeLabels(cfg, options)
     await $.command.register({
       name: 'liveroom',
       description: tx('Liveroom, the live agent dashboard: open, close, reset, or set the layout'),
@@ -675,7 +676,7 @@ export const register: Register = (on, options) => {
           {lastConsult ? (
             <Text dimColor wrap="truncate">
               {advising
-                ? tx('consulting since {t}', { t: fmtClock(lastConsult.at) })
+                ? tx('consulting since {t}', { t: fmtClock(lastConsult.at), abl: clockAblative(fmtClock(lastConsult.at)) })
                 : tx('last {d} ago · took {d2}', { d: fmtDuration(now - (lastConsult.endAt ?? lastConsult.at)), d2: fmtDuration((lastConsult.endAt ?? now) - lastConsult.at) })}
             </Text>
           ) : (
@@ -782,10 +783,13 @@ export const register: Register = (on, options) => {
       // Cards need 20 columns each; when the pane can't hold the limit, lanes take over.
       const fit = Math.max(1, Math.min(cfg.maxCards, Math.floor((w + 1) / 21)))
       const useLanes = cards.length > fit
+      const title = tx('agents · {running} running · {total} total', { running: running.length, total: cards.length })
+      const hint = tx('1-{n} expand', { n: Math.min(cards.length, useLanes ? 6 : fit) })
       const header = (
         <Box justifyContent="space-between" width={w}>
-          <Text bold>{tx('agents · {running} running · {total} total', { running: running.length, total: cards.length })}</Text>
-          {cards.length > 0 ? <Text color={C.faint}>{tx('1-{n} expand', { n: Math.min(cards.length, useLanes ? 6 : fit) })}</Text> : null}
+          <Text bold>{title}</Text>
+          {/* The hint gives way when it can't share the row: Turkish runs longer. */}
+          {cards.length > 0 && title.length + 1 + hint.length <= w ? <Text color={C.faint}>{hint}</Text> : null}
         </Box>
       )
       if (cards.length === 0) {
@@ -930,7 +934,7 @@ export const register: Register = (on, options) => {
           ) : (
             <Text color={C.faint}>{tx('no turn finished yet')}</Text>
           )}
-          {isReview ? <Text color={C.arch}>{tx('{label} reviewing before done (inferred)', { label: cfg.architectLabel.toLowerCase() })}</Text> : null}
+          {isReview ? <Text color={C.arch}>{tx('{label} reviewing before done (inferred)', { label: lower(cfg.architectLabel) })}</Text> : null}
         </Box>
       )
     }
@@ -1055,11 +1059,11 @@ export const register: Register = (on, options) => {
             {mg ? <Text>{` ${Math.round(u.pct ?? 0)}%`}</Text> : null}
             {u.compactions > 0 ? <Text color={C.amber}>{` ⟲${u.compactions}`}</Text> : null}
             {u.costUsd !== null ? <Text dimColor>{` · ${fmtUsd(u.costUsd)}`}</Text> : null}
-            {showArchitect ? <Text color={C.arch}>{` · ${cfg.architectLabel.toLowerCase()} ${advising ? tx('advising') : a.consults.length}`}</Text> : null}
+            {showArchitect ? <Text color={C.arch}>{` · ${lower(cfg.architectLabel)} ${advising ? tx('advising') : a.consults.length}`}</Text> : null}
           </Text>
           {strip.length > 0 ? (
             <Box>
-              <Text dimColor>{`${cfg.gateLabel.toLowerCase()} `}</Text>
+              <Text dimColor>{`${lower(cfg.gateLabel)} `}</Text>
               {strip.map(c => (
                 <Text color={verdictColor(c)} dimColor={c.inSubagent}>
                   {c.verdict === 'deny' ? '✗' : '■'}
@@ -1098,8 +1102,8 @@ export const register: Register = (on, options) => {
       [
         { label: tx('main'), color: C.main },
         { label: tx('agents'), color: C.agent },
-        { label: cfg.gateLabel.toLowerCase(), color: C.gate },
-        ...(showArchitect ? [{ label: cfg.architectLabel.toLowerCase(), color: C.arch }] : []),
+        { label: lower(cfg.gateLabel), color: C.gate },
+        ...(showArchitect ? [{ label: lower(cfg.architectLabel), color: C.arch }] : []),
         ...(panels.includes('codex') ? [{ label: 'codex', color: ROOM_COLORS[cfg.palette].codex }] : []),
       ],
       W,
@@ -1230,11 +1234,27 @@ const rules = atom({ plugin: 'liveroom', key: 'rules' } as const, {})
  * one too), so it lives here rather than in state: no hook pays a state read to translate.
  */
 let tx: T = makeT('en')
+let paneLang: Lang = 'en'
 
 /** Sets the pane's language: the option's, or under `auto` Claude Code's own `language` setting. */
 async function noteLanguage($: EngineInterface, option: LanguageOption) {
   const setting = option === 'auto' ? await $.settings.read().then(s => s.language, () => undefined) : undefined
-  tx = makeT(langOf(option, setting))
+  paneLang = langOf(option, setting)
+  tx = makeT(paneLang)
+}
+
+/**
+ * Lower case for a label: a Turkish one ("MİMAR") the Turkish way, so it reads "mimar", not "mi̇mar";
+ * an ASCII one ("ARCHITECT") the plain way, so it never reads "archıtect".
+ */
+const lower = (s: string) => (paneLang === 'tr' && /[^\x00-\x7f]/.test(s) ? s.toLocaleLowerCase('tr') : s.toLowerCase())
+
+/** The architect and gate panels take the pane's language for their names, unless the user named them. */
+function localizeLabels(cfg: Config, options: Readonly<Record<string, unknown>>) {
+  // The engine passes the manifest's defaults as values, so a label still at its default is unnamed.
+  const isNamed = (k: string, fallback: string) => typeof options[k] === 'string' && options[k] !== '' && options[k] !== fallback
+  if (!isNamed('architectLabel', 'ARCHITECT')) cfg.architectLabel = tx('ARCHITECT')
+  if (!isNamed('gateLabel', 'GATE')) cfg.gateLabel = tx('GATE')
 }
 
 /** Everything the room's panels draw from, read leniently. */
