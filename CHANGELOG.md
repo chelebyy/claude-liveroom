@@ -14,6 +14,8 @@
 - A session that ends other than by `/clear` (a resume, a branch, an exit) clears its team, as Claude Code brings none of its teammates back; the task list stays.
 - Task subjects are stored with credentials masked, as every other text from a tool input.
 - A mailbox delivery another mod consumes doesn't count, and one it rewrites is read as rewritten.
+- A pane teammate's task completion notice marks its task done on the board.
+- The status line's team total counts every teammate not shut down, a failed one included.
 - A session that ends other than by `/clear` takes its teammates' ⚠ notes with them.
 - Requires Claude Code 2.1.289 or later, which gives mods teammate spawns.
 - The roster never drops a teammate still running: past 24 it drops the oldest that shut down first.

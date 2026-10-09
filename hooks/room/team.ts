@@ -178,6 +178,7 @@ export type TeamNotice =
   | { kind: 'failed'; from: string }
   | { kind: 'ended'; from: string }
   | { kind: 'assigned'; taskId: string; subject: string }
+  | { kind: 'done'; taskId: string; subject: string; from: string }
 
 /**
  * The harness's notice in a delivery's text, or null for a message a model wrote. `sender` is who
@@ -192,6 +193,8 @@ export function noticeOf(text: string, sender: string | null): TeamNotice | null
   if ((o.type === 'shutdown_approved' || o.type === 'teammate_terminated' || (o.type === 'shutdown_response' && o.approve === true)) && from) return { kind: 'ended', from }
   const taskId = str(o.taskId)
   if (o.type === 'task_assignment' && taskId) return { kind: 'assigned', taskId, subject: str(o.subject) ?? '' }
+  // A pane teammate's TaskUpdate never reaches this process: its completion notice is the signal.
+  if (o.type === 'task_completed' && taskId && from) return { kind: 'done', taskId, subject: str(o.taskSubject) ?? '', from }
   return null
 }
 
@@ -254,6 +257,12 @@ export function listTasks(tasks: readonly TeamTask[], listed: unknown): TeamTask
 export function assignTask(tasks: readonly TeamTask[], taskId: string, subject: string, owner: string): TeamTask[] {
   const was = tasks.find(t => t.id === taskId) ?? { id: taskId, subject: '', status: 'pending' as const, owner: null }
   return upsert(tasks, { ...was, subject: was.subject || subjectOf(subject), owner })
+}
+
+/** A task its teammate completed, as its completion notice says; one never seen joins as done. */
+export function completeTask(tasks: readonly TeamTask[], taskId: string, subject: string, owner: string): TeamTask[] {
+  const was = tasks.find(t => t.id === taskId) ?? { id: taskId, subject: '', status: 'pending' as const, owner: null }
+  return upsert(tasks, { ...was, subject: was.subject || subjectOf(subject), status: 'completed', owner: was.owner ?? owner })
 }
 
 /** The task a member works on: one it owns that is in progress. */

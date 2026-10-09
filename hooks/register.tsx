@@ -63,7 +63,7 @@ import type { LanguageOption, T } from './room/i18n'
 import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
-import { LEAD, addTask, applyMessage, assignTask, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
+import { LEAD, addTask, applyMessage, assignTask, completeTask, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -141,7 +141,7 @@ async function refreshStatus($: EngineInterface, cfg: Config) {
   const [u, a, g, cards, t] = await Promise.all([getUsage($), getArchitect($), getGate($), getCards($), read($, team).then(teamOf)])
   const running = cards.filter(c => c.status === 'running').length
   const working = t.members.filter(m => m.state === 'working').length
-  const live = t.members.filter(m => m.state === 'working' || m.state === 'idle').length
+  const live = t.members.filter(m => m.state !== 'ended').length // a failed teammate can still be woken
   const s = gateSummary(g)
   const parts = [
     u.pct !== null ? tx('ctx {n}%', { n: Math.round(u.pct) }) : null,
@@ -1465,7 +1465,7 @@ async function noteDelivery($: EngineInterface, sender: string, isVerified: bool
   const at = await $.clock.now()
   const was = teamOf(await read($, team))
   const notice = noticeOf(text, sender)
-  const member = memberNamed(was, notice && notice.kind !== 'assigned' ? notice.from : sender)
+  const member = memberNamed(was, notice && notice.kind !== 'assigned' && notice.kind !== 'done' ? notice.from : sender)
   // A message the harness here didn't write is a pane teammate's, which no tool call showed: its
   // words (JSON included), or a protocol request or answer. The mailbox's own notices are not one.
   if (!isVerified && !isNotice(text)) {
@@ -1478,11 +1478,13 @@ async function noteDelivery($: EngineInterface, sender: string, isVerified: bool
   if (notice?.kind === 'assigned') {
     const owner = to ? memberOf(was, to)?.name : LEAD
     if (owner) await update($, tasks, ts => assignTask(tasksOf(ts), notice.taskId, notice.subject, owner))
+  } else if (notice?.kind === 'done') {
+    await update($, tasks, ts => completeTask(tasksOf(ts), notice.taskId, notice.subject, notice.from))
   } else if (notice && member) {
     await update($, team, t => setState(teamOf(t), member.id, notice.kind, at))
     if (notice.kind === 'ended' && member.state !== 'ended') await say($, shorten(member.name, 14), tx('shut down'), 'info', member.id)
   }
-  return Boolean(member) && (Boolean(notice) || !isVerified)
+  return Boolean(member) && ((notice !== null && notice.kind !== 'assigned' && notice.kind !== 'done') || !isVerified)
 }
 
 /** A Codex run ends with its call: failed when refused, errored or thrown (`ran` null). */

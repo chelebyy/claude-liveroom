@@ -85,6 +85,7 @@ test('mailbox notices: idle, shutdown and task assignment; a model\'s own words 
   expect(noticeOf('{"type":"shutdown_response","approve":true}', 'scout')).toEqual({ kind: 'ended', from: 'scout' })
   expect(noticeOf('{"type":"shutdown_response","approve":false}', 'scout')).toBeNull()
   expect(noticeOf('{"type":"task_assignment","taskId":"3","subject":"write tests","assignedBy":"team-lead"}', 'team-lead')).toEqual({ kind: 'assigned', taskId: '3', subject: 'write tests' })
+  expect(noticeOf('{"type":"task_completed","from":"critic","taskId":"4","taskSubject":"audit auth"}', 'critic')).toEqual({ kind: 'done', taskId: '4', subject: 'audit auth', from: 'critic' })
   expect(noticeOf('hello from scout', 'scout')).toBeNull()
   expect(noticeOf('{"not json', 'scout')).toBeNull()
   expect(noticeOf('{"note":"a model wrote JSON"}', 'scout')).toBeNull()
@@ -305,13 +306,15 @@ test('a delivery a later hook consumes is not counted; a rewritten one shows as 
 })
 
 test('a pane teammate\'s protocol answers show as answers; a failed idle notice marks it failed', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
-  engine(on)
+  const statuses: string[] = []
+  engine(on, statuses)
   await $.session.start(START)
   await spawnTeammate($, 'critic')
   const from = { kind: 'peer', teammate: 'critic', isVerified: false }
   await $.session.receive({ origin: from, text: '{"type":"plan_approval_response","request_id":"p1","approve":true}' } as never)
   await $.session.receive({ origin: from, text: '{"type":"shutdown_rejected","requestId":"s1","from":"critic","reason":"still busy"}' } as never)
   await $.session.receive({ origin: from, text: '{"type":"idle_notification","from":"critic","idleReason":"failed"}' } as never)
+  expect(statuses.at(-1)).toContain('team 0/1') // a failed teammate is still the team's
   let ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^plan ✓$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^shutdown ✗$/ })).toBeDefined() // the mailbox's spelling of a refusal
@@ -332,8 +335,10 @@ test('a pane teammate\'s JSON words are a message; a plan request shows; the mai
   const from = { kind: 'peer', teammate: 'critic', isVerified: false }
   await $.session.receive({ origin: from, text: '{"file":"auth.ts","issue":"token leak"}' } as never)
   await $.session.receive({ origin: from, text: '{"type":"plan_approval_request","requestId":"p1","from":"critic","planFilePath":"/p.md"}' } as never)
-  await $.session.receive({ origin: from, text: '{"type":"task_completed","taskId":"1","from":"critic"}' } as never)
+  await $.session.receive({ origin: from, text: '{"type":"task_completed","taskId":"1","from":"critic","taskSubject":"audit auth"}' } as never)
   let ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+  expect(await ui.find({ text: /^1\/1 done$/ })).toBeDefined() // its completion notice is the board's signal
+  expect(await ui.find({ type: 'Text', text: /^audit auth$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^\{"file":"auth.ts","issue":"token leak"\}$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^plan\?$/ })).toBeDefined()
   expect(await ui.find({ text: /task_completed/ })).toBeUndefined() // the mailbox's own notice
