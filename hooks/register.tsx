@@ -56,7 +56,7 @@ import {
   stepLoop,
 } from './core'
 import type { Config, Panel } from './core'
-import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel } from './room/panels'
+import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, roomRows } from './room/panels'
 import type { CodexRun } from './room/core'
 import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
 import type { RoomView } from './room/state'
@@ -924,7 +924,10 @@ export const register: Register = (on, options) => {
     }
 
     // ---- log: whatever rows the other panels leave, 4 to 8
-    const used = 2 + 5 + (showArchitect ? 6 : 0) + 6 + (v.gateOpen ? 5 : 0) + (cards.length > cfg.maxCards ? 3 + Math.min(6, cards.length) : 8) + (expandedCard ? 8 : 0) + (lp.length ? 1 : 0) + 3
+    // Liveroom's panels: stacked in one column they all add up; side by side, the taller column counts.
+    const rowsOf = (p: 'models' | 'codex' | 'skills') => (panels.includes(p) ? roomRows(p, room, cfg.delegationRule) : 0)
+    const roomUsed = isWide ? Math.max(rowsOf('models'), rowsOf('codex') + rowsOf('skills')) : rowsOf('models') + rowsOf('codex') + rowsOf('skills')
+    const used = 2 + 5 + (showArchitect ? 6 : 0) + 6 + (v.gateOpen ? 5 : 0) + (cards.length > cfg.maxCards ? 3 + Math.min(6, cards.length) : 8) + (expandedCard ? 8 : 0) + (lp.length ? 1 : 0) + 3 + roomUsed
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 40
     const nLog = logRows(bodyRows, used)
     const shownLines = (viewed ? lines.filter(l => l.agentId === viewed) : lines).slice(-nLog)

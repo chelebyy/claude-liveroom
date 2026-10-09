@@ -131,6 +131,10 @@ test('a run ends once, and the list keeps the newest', () => {
   expect(many[29]?.id).toBe('r39')
   // Finished runs make room first: the run in flight and the background one stay.
   expect(many.map(r => r.id).slice(0, 2)).toEqual(['live', 'bg'])
+  // A run that ended without a verdict is finished too.
+  let unknown: ReturnType<typeof pushRun> = []
+  for (let i = 0; i < 40; i++) unknown = endRun(pushRun(unknown, rescueRun(`u${i}`, 'x', i)), `u${i}`, 'ended', i)
+  expect(unknown.length).toBe(30)
   // With nothing finished left to drop, a background run goes; a run in flight never does.
   let busy = many.filter(r => r.status !== 'done')
   for (let i = 0; i < 30; i++) busy = pushRun(busy, rescueRun(`b${i}`, 'x', i))
@@ -323,6 +327,22 @@ test('a codex the shell line sends off with & shows ◌ bg, apart from the runni
   expect(await ui.find({ text: /^◌ $/ })).toBeDefined()
   expect(await ui.find({ text: /^bg$/ })).toBeDefined()
   expect(await ui.find({ text: /0 running · 1 bg · 1 total/ })).toBeDefined() // its end is never seen, so it is not counted as running
+  await ui.unmount()
+})
+
+test('the session log gives up rows to full room panels', async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  for (let i = 0; i < 10; i++) await $.turn.start({ text: `prompt ${i}`, turnId: `T${i}` })
+  const base = pane(64)
+  const short = { ...base, props: { ...base.props, scroll: { offset: 0, bodyRows: 40 } }, surface: 'terminal' as const }
+  let ui = await $.ui.mount(short)
+  expect(await ui.findAll({ type: 'Text', text: /^you$/ })).toHaveLength(8)
+  await ui.unmount()
+  for (let i = 0; i < 6; i++) await $.tool.call({ tool: 'Bash', command: `codex exec x${i}`, tool_use_id: `c${i}` } as never)
+  for (let i = 0; i < 5; i++) await $.tool.call({ tool: 'Skill', skill: `p${i}:s${i}`, tool_use_id: `s${i}` } as never)
+  ui = await $.ui.mount(short)
+  expect(await ui.findAll({ type: 'Text', text: /^you$/ })).toHaveLength(4)
   await ui.unmount()
 })
 

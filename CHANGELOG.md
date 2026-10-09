@@ -10,7 +10,8 @@
 - `delegationRule` option (default on) turns the ⚠ checks off, including warnings recorded before it was switched off.
 - Codex calls are read from their own option words: global options before `exec` or `review` work, `-c model=…` is read, and a prompt that mentions `--model` is not mistaken for one. A codex-rescue run ends with its subagent. A `codex exec` in a background shell ends when its task notification arrives, done or failed as it says; one sent off with a trailing `&` shows `◌ bg` and is counted apart from the running ones, since no event says when it ends. A codex followed by another command on its line ends as `■`: the shell's exit status is not its own. Redirections such as `2>&1` are not separators, here-document lines are not calls, a backslash-newline continues a command, and `codex exec review` counts as a review. Every codex call on a line is its own run, wrappers are read with their options (`env -i`, `timeout -s KILL 30`), and a backgrounded codex the line `wait`s for is not detached.
 - A rescue counts as a consult only when a clause of its own says read-only or no file edits, not when it only spares some files or mentions a read-only field.
-- The codex list keeps 30 runs by dropping finished ones first; a run still in flight is never dropped.
+- The codex list keeps 30 runs by dropping finished ones first, those without a verdict included; a run still in flight is never dropped.
+- The session log leaves room for the new panels, so full room panels don't push the pane past its viewport.
 
 ## Liveroom 0.1.0
 

@@ -395,7 +395,7 @@ export function linkRun(runs: readonly CodexRun[], id: string, agentId: string):
  */
 export function pushRun(runs: readonly CodexRun[], run: CodexRun, keep = 30): CodexRun[] {
   let kept = [...runs, run]
-  const isFinished = (r: CodexRun) => r.status === 'done' || r.status === 'failed'
+  const isFinished = (r: CodexRun) => r.status === 'done' || r.status === 'failed' || r.status === 'ended'
   const isBackground = (r: CodexRun) => r.status === 'background'
   for (const isDroppable of [isFinished, isBackground]) {
     let extra = kept.length - keep

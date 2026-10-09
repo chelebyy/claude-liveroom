@@ -40,6 +40,18 @@ export function isRoomEmpty(p: RoomPanel, room: RoomView): boolean {
   return Object.keys(room.skills).length === 0 && Object.keys(room.plugins).length === 0
 }
 
+/**
+ * The rows a room panel takes, so the session log can leave room for it: its frame and title, its
+ * rows as drawRoom caps them, and the rail above it. Nothing for an empty panel, which takes no room.
+ */
+export function roomRows(p: RoomPanel, room: RoomView, isRuleOn: boolean): number {
+  if (isRoomEmpty(p, room)) return 0
+  const frame = 3 + 1
+  if (p === 'models') return frame + Math.min(5, Object.keys(room.steps).length)
+  if (p === 'codex') return frame + Math.min(6, room.codex.length) + (isRuleOn && room.codex.some(r => r.ruleNote) ? 1 : 0)
+  return frame + Math.min(5, Object.keys(room.skills).length) + Math.min(4, Object.keys(room.plugins).length)
+}
+
 /** The cards' colours: running in the agent colour, done green, failed red; a run without a verdict dims. */
 export const statusColorOf = (C: Colors, s: RunStatus) =>
   s === 'failed' ? C.warn : s === 'done' ? C.gate : s === 'background' || s === 'ended' ? C.dim : C.agent
