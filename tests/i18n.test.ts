@@ -230,3 +230,24 @@ test('language tr: the codex header falls back to its short hint at 40 columns',
   expect(await ui.find({ text: /0 çalışıyor · 1 toplam/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('language tr: the inline gate summary turns to marks when its words would not fit', { options: { language: 'tr', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  on('tool.check', (_$, e) => ({ decision: e.tool === 'Read' ? 'allow' : e.tool === 'Bash' ? 'ask' : 'deny', reason: 'no' }))
+  await $.session.start(START)
+  await $.tool.check({ tool: 'Read', input: { file_path: '/a' }, tool_use_id: 'k1' })
+  await $.tool.check({ tool: 'Bash', input: { command: 'make' }, tool_use_id: 'k2' })
+  await $.tool.check({ tool: 'Write', input: { file_path: '/b', content: '' }, tool_use_id: 'k3' })
+  const mini = (cols: number) => {
+    const p = pane(cols)
+    return { ...p, props: { ...p.props, placement: 'inline' as const }, surface: 'terminal' as const }
+  }
+  let ui = await $.ui.mount(mini(40))
+  const marks = await ui.find({ text: /^ ✓\d+ \?\d+ ✗\d+$/ })
+  expect(marks?.text).toBe(' ✓1 ?1 ✗1')
+  expect(await ui.find({ text: /reddedildi/ })).toBeUndefined()
+  await ui.unmount()
+  ui = await $.ui.mount(mini(100))
+  expect(await ui.find({ text: /1 reddedildi/ })).toBeDefined() // room for the words
+  await ui.unmount()
+})

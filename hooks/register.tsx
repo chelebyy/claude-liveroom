@@ -1045,8 +1045,13 @@ export const register: Register = (on, options) => {
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
     if (isMini) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, 3)
-      const counts = tx(' {allowed} allowed · {cleared} {decider}{pending} · {denied} denied', { allowed: s.rule, cleared: s.cleared, decider, pending: s.ask > 0 ? tx(' · {n} pending', { n: s.ask }) : '', denied: s.deny })
-      const strip = g.recent.slice(-Math.max(4, W - cfg.gateLabel.length - 1 - counts.length))
+      const wordy = tx(' {allowed} allowed · {cleared} {decider}{pending} · {denied} denied', { allowed: s.rule, cleared: s.cleared, decider, pending: s.ask > 0 ? tx(' · {n} pending', { n: s.ask }) : '', denied: s.deny })
+      // When the words leave less than Flightdeck's 4 cells of strip, the counts turn to marks
+      // (✓7 ?1 ✗2), so the denied count always shows: the Turkish words run long at 40 columns.
+      const room = W - cfg.gateLabel.length - 1
+      const isTight = wordy.length + 4 > room
+      const counts = isTight ? tx(' ✓{ok}{pending} ✗{denied}', { ok: s.rule + s.cleared, pending: s.ask > 0 ? ` ?${s.ask}` : '', denied: s.deny }) : wordy
+      const strip = g.recent.slice(-Math.max(isTight ? 1 : 4, room - counts.length))
       const mg = u.pct !== null ? gauge(u.pct, 6) : null
       return (
         <Box flexDirection="column" width={W}>

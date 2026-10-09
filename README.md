@@ -172,7 +172,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | [`hooks/rail.tsx`](hooks/rail.tsx), [`hooks/elapsed.tsx`](hooks/elapsed.tsx) | surface modules: animated connectors and live clocks that redraw only themselves, on the surface's own frame clock |
 | [`types/index.d.ts`](types/index.d.ts) | the state contract |
 | [`hooks/room/`](hooks/room) | Liveroom's additions: Codex call parsing, tallies and the models, codex and skills panels, as pure functions |
-| [`tests/`](tests) | 69 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
+| [`tests/`](tests) | 70 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
 
 State lives in `$.state` atoms. Every read is merged over defaults, so a missing or older field never breaks the pane; an update that changes the state's shape may still reset its counters once. New to mods? Start with [Claude Code mods](https://claude.com/blog/claude-code-mods) and [Getting started with Claude Code mods](https://claude.dev/blog/getting-started-with-claude-code-mods/).
 

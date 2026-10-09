@@ -8,6 +8,7 @@
 - A consult in progress reads "12:03:45'ten beri danışıyor", the suffix following the clock as it is read aloud.
 - The agents header's `1-n expand` hint gives way when it can't share the row, and a room panel's header falls back to its short hint (`1 total`), then to none. In English this fixes the codex header at 40 columns, which ran one column over.
 - The other-loops row keeps Flightdeck's dot count but never runs past its width once its text is longer.
+- The inline summary's gate counts turn to marks (`✓7 ?1 ✗2`) when their words would leave less than four cells of strip, so the denied count always shows.
 - English output is unchanged.
 
 ## Liveroom 0.2.0

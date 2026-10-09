@@ -116,6 +116,7 @@ export const TR = {
   '{n} agents on a time axis': '{n} ajan zaman ekseninde',
   ' {allowed} allowed · {cleared} {decider}{pending} · {denied} denied': ' {allowed} izinli · {cleared} {decider}{pending} · {denied} reddedildi',
   ' · {n} pending': ' · {n} bekliyor',
+  ' ✓{ok}{pending} ✗{denied}': ' ✓{ok}{pending} ✗{denied}',
   ' ● working': ' ● çalışıyor',
   ' ○ idle': ' ○ boşta',
   ' · ctx ': ' · ctx ',
