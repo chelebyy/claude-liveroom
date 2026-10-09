@@ -346,12 +346,13 @@ export const callRunId = (toolUseId: string, n: number) => (n === 0 ? toolUseId 
 
 /**
  * The verdict a shell's exit status gives a codex run. It is the run's own only when nothing runs
- * after it, and even then a failure after `&&`, or a success after `||`, may be the command before
- * it, with codex never run: those end without a verdict.
+ * after it. A success after `||` may be the command before it, with codex never run: that ends
+ * without a verdict. A failure after `&&` counts as codex's: the command before it is nearly always
+ * a step like `cd repo` that succeeds, so codex is the likelier failure.
  */
 export function shellVerdict(run: CodexRun, isError: boolean): 'done' | 'failed' | 'ended' {
   if (run.isExitShared) return 'ended'
-  if ((run.reachedBy === 'and' && isError) || (run.reachedBy === 'or' && !isError)) return 'ended'
+  if (run.reachedBy === 'or' && !isError) return 'ended'
   return isError ? 'failed' : 'done'
 }
 

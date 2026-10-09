@@ -102,12 +102,13 @@ test('every codex call on a line is read, through wrappers and their options', (
   expect(parseCodexCli('codex exec x & echo started')?.isDetached).toBe(true)
 })
 
-test('a codex behind && or || may never run, so the exit status gives it no verdict either way', () => {
+test('a codex behind || may never run, so a success gives it no verdict; a failure behind && is its own', () => {
   expect(parseCodexCalls('codex exec a || codex exec b').map(c => c.reachedBy)).toEqual([null, 'or'])
   const run = (line: string) => cliRun('x', parseCodexCli(line)!, 1)
-  // After `&&`, a success means it ran and passed; a failure may be the command before it.
+  // After `&&`, a success means it ran and passed, and a failure counts as codex's: the step
+  // before it (`cd repo`) nearly always succeeds.
   expect(shellVerdict(run('cd repo && codex exec x'), false)).toBe('done')
-  expect(shellVerdict(run('false && codex exec x'), true)).toBe('ended')
+  expect(shellVerdict(run('cd repo && codex exec x'), true)).toBe('failed')
   // After `||`, a failure means it ran and failed; a success may be the command before it.
   expect(shellVerdict(run('true || codex exec x'), false)).toBe('ended')
   expect(shellVerdict(run('make || codex exec x'), true)).toBe('failed')
@@ -378,13 +379,17 @@ test('a background codex shell that fails to start ends as failed at once', asyn
   await ui.unmount()
 })
 
-test('a codex the line never reached shows no verdict, not a failure', async ($, on) => {
+test('a codex behind || that may never have run shows no verdict; a failure behind && shows ✗', async ($, on) => {
   engine(on)
-  on('tool.call', () => ({ result: {}, text: '', isError: true }))
-  await $.tool.call({ tool: 'Bash', command: 'false && codex exec -m gpt-6-luna -c model_reasoning_effort=low x', tool_use_id: 'sk1' } as never)
-  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  on('tool.call', (_$, e) => (String(e.tool_use_id) === 'and1' ? { result: {}, text: '', isError: true } : { result: {}, text: '' }))
+  await $.tool.call({ tool: 'Bash', command: 'true || codex exec -m gpt-6-luna -c model_reasoning_effort=low x', tool_use_id: 'or1' } as never)
+  let ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /^■ $/ })).toBeDefined()
-  expect(await ui.find({ text: /^✗ $/ })).toBeUndefined()
+  expect(await ui.find({ text: /^✓ $/ })).toBeUndefined()
+  await ui.unmount()
+  await $.tool.call({ tool: 'Bash', command: 'cd repo && codex exec -m gpt-6-luna -c model_reasoning_effort=low y', tool_use_id: 'and1' } as never)
+  ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^✗ $/ })).toBeDefined()
   await ui.unmount()
 })
 
