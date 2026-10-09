@@ -12,7 +12,8 @@
 - Teammates in panes of their own run outside the lead's process. Their state is read from their messages and the team's idle, shutdown and termination notices; their plan requests and plan and shutdown answers show as such, and anything else they write, JSON included, as a message. See "What is inferred".
 - The team panel shows only the team's messages, between the lead and a teammate or two teammates: SendMessage to or from another session stays out. A plan answer or a shutdown request wakes its teammate like a message.
 - A session that ends other than by `/clear` (a resume, a branch, an exit) clears its team, as Claude Code brings none of its teammates back; the task list stays.
-- Task subjects are stored with credentials masked, as every other text from a tool input.
+- Task subjects and owners are stored with credentials masked, as every other text from a tool input.
+- A teammate respawned under its address drops its old ⚠ unless the new spawn earns one; the inline summary lists working teammates first.
 - A mailbox delivery another mod consumes doesn't count, and one it rewrites is read as rewritten.
 - A pane teammate's task completion notice marks its task done on the board.
 - The status line's team total counts every teammate not shut down, a failed one included.

@@ -204,12 +204,15 @@ const STATUSES: readonly TeamTask['status'][] = ['pending', 'in_progress', 'comp
 
 /** A task's subject as stored and shown: credentials masked, one line, 120 characters at most. */
 const subjectOf = (x: unknown) => shorten(redact(str(x) ?? ''), 120)
+
+/** A task's owner as stored: a name, credentials masked all the same; none when empty. */
+const ownerOf = (x: unknown) => shorten(redact(str(x) ?? ''), 40) || null
 const statusOf = (x: unknown): TeamTask['status'] | null => (STATUSES as readonly unknown[]).includes(x) ? (x as TeamTask['status']) : null
 
 /** The task list read leniently: entries without an id are dropped. */
 export function tasksOf(x: unknown): TeamTask[] {
   return listOf<Partial<TeamTask>>(x).flatMap(t =>
-    t && typeof t.id === 'string' ? [{ id: t.id, subject: subjectOf(t.subject), status: statusOf(t.status) ?? 'pending', owner: str(t.owner) }] : [],
+    t && typeof t.id === 'string' ? [{ id: t.id, subject: subjectOf(t.subject), status: statusOf(t.status) ?? 'pending', owner: ownerOf(t.owner) }] : [],
   )
 }
 
@@ -244,7 +247,7 @@ export function updateTask(tasks: readonly TeamTask[], input: { taskId?: unknown
     ...was,
     subject: typeof input.subject === 'string' ? subjectOf(input.subject) : was.subject,
     status: statusOf(input.status) ?? was.status,
-    owner: typeof input.owner === 'string' ? input.owner || null : was.owner,
+    owner: typeof input.owner === 'string' ? ownerOf(input.owner) : was.owner,
   })
 }
 
@@ -256,13 +259,13 @@ export function listTasks(tasks: readonly TeamTask[], listed: unknown): TeamTask
 /** A task assigned to a member, as its assignment notice says. */
 export function assignTask(tasks: readonly TeamTask[], taskId: string, subject: string, owner: string): TeamTask[] {
   const was = tasks.find(t => t.id === taskId) ?? { id: taskId, subject: '', status: 'pending' as const, owner: null }
-  return upsert(tasks, { ...was, subject: was.subject || subjectOf(subject), owner })
+  return upsert(tasks, { ...was, subject: was.subject || subjectOf(subject), owner: ownerOf(owner) })
 }
 
 /** A task its teammate completed, as its completion notice says; one never seen joins as done. */
 export function completeTask(tasks: readonly TeamTask[], taskId: string, subject: string, owner: string): TeamTask[] {
   const was = tasks.find(t => t.id === taskId) ?? { id: taskId, subject: '', status: 'pending' as const, owner: null }
-  return upsert(tasks, { ...was, subject: was.subject || subjectOf(subject), status: 'completed', owner: was.owner ?? owner })
+  return upsert(tasks, { ...was, subject: was.subject || subjectOf(subject), status: 'completed', owner: was.owner ?? ownerOf(owner) })
 }
 
 /** The task a member works on: one it owns that is in progress. */

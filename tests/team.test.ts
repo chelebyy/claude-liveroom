@@ -137,6 +137,7 @@ test('the task list: created, updated, owned, deleted, and replaced by a TaskLis
   expect(updateTask([], { taskId: '1', subject: secret })[0]?.subject).not.toContain('abcdefghijklmnop')
   expect(listTasks([], [{ id: '1', subject: secret, status: 'pending' }])[0]?.subject).not.toContain('abcdefghijklmnop')
   expect(assignTask([], '1', secret, 'scout')[0]?.subject).not.toContain('abcdefghijklmnop')
+  expect(updateTask([], { taskId: '1', owner: secret })[0]?.owner).not.toContain('abcdefghijklmnop') // owners too
 })
 
 test('a plan answer wakes its teammate; only the team\'s traffic is the team\'s', () => {
@@ -468,6 +469,29 @@ test('a teammate whose spawn names no model and runs on the lead\'s gets ⚠ in 
   const p = pane(80)
   const inline = await $.ui.mount({ ...p, props: { ...p.props, placement: 'inline' as const }, surface: 'terminal' })
   expect(await inline.find({ text: /^⚠$/ })).toBeDefined()
+  await inline.unmount()
+})
+
+test('a teammate respawned under its address drops its old ⚠ when the new spawn names a model', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await spawnTeammate($, 'critic', null) // a pane teammate on the lead's model: ⚠
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'critic', isVerified: false }, text: '{"type":"shutdown_approved","from":"critic"}' } as never)
+  await spawnTeammate($, 'critic') // the same address, its model named
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^1 working · 0 idle$/ })).toBeDefined()
+  expect(await ui.find({ text: /^⚠ $/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the inline summary lists working teammates first', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  for (let i = 0; i < 9; i++) await spawnTeammate($, `t${i}`)
+  for (let i = 1; i < 9; i++) await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: `W${i}`, agentId: `tm-t${i}`, reason: 'answer' } as never)
+  const p = pane(200)
+  const inline = await $.ui.mount({ ...p, props: { ...p.props, placement: 'inline' as const }, surface: 'terminal' })
+  expect(await inline.find({ text: /^●t0 $/ })).toBeDefined() // the oldest, still at work
   await inline.unmount()
 })
 

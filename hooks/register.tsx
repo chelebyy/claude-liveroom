@@ -473,6 +473,8 @@ export const register: Register = (on, options) => {
 
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
+    // A teammate respawned under its address keeps its id: its old ⚠ goes unless this spawn earns one.
+    if (e.isTeammate && started.agentId) await dropRule($, started.agentId)
     await noteSpawn($, e, started, cfg.delegationRule)
     if (!e.parentAgentId) await noteMode($, e.permissionMode)
     if (started.deny !== undefined || !started.agentId) return started
@@ -1075,7 +1077,8 @@ export const register: Register = (on, options) => {
 
     // Inline above the prompt (the terminal's main screen), the pane is a summary of at most 8 rows.
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
-    const crew = panels.includes('team') ? room.team.members.filter(m => m.state !== 'ended').slice(-8) : []
+    // Working teammates first, so the row never hides one at work behind waiting ones.
+    const crew = panels.includes('team') ? [...room.team.members.filter(m => m.state === 'working'), ...room.team.members.filter(m => m.state === 'idle' || m.state === 'failed')].slice(0, 8) : []
     if (isMini) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, crew.length > 0 ? 2 : 3) // a team's row takes one of the three
       const wordy = tx(' {allowed} allowed · {cleared} {decider}{pending} · {denied} denied', { allowed: s.rule, cleared: s.cleared, decider, pending: s.ask > 0 ? tx(' · {n} pending', { n: s.ask }) : '', denied: s.deny })
@@ -1398,6 +1401,11 @@ async function endTeammates($: EngineInterface) {
   const ids = new Set(teamOf(await read($, team)).members.map(m => m.id))
   await update($, rules, r => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([id]) => !ids.has(id))))
   await update($, team, () => ({ members: [], messages: [] }))
+}
+
+/** Forgets an agent's delegation note. */
+async function dropRule($: EngineInterface, id: string) {
+  await update($, rules, r => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([k]) => k !== id)))
 }
 
 /** A teammate joins the team panel, working on the prompt it was spawned with. */
