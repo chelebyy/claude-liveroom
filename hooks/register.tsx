@@ -1302,9 +1302,11 @@ export const register: Register = (on, options) => {
 
   // The team's mailbox: the harness's notices (a teammate went idle, shut down, took a task), and
   // the messages of teammates in panes of their own, whose tool calls never reach this process.
+  // Only what was queued counts: a later hook may consume a delivery or rewrite its text.
   on('session.receive', async ($, e, next) => {
     const got = await next(e)
-    if ('teammate' in e.origin && (await noteDelivery($, e.origin.teammate, e.origin.isVerified, e.text, e.agentId))) await refreshStatus($, cfg)
+    if (!('teammate' in e.origin) || got.consumed !== undefined) return got
+    if (await noteDelivery($, e.origin.teammate, e.origin.isVerified, got.text, e.agentId)) await refreshStatus($, cfg)
     return got
   })
 }
@@ -1393,6 +1395,8 @@ async function resetRoom($: EngineInterface) {
  * its name. The task list stays, as resumed sessions keep their tasks.
  */
 async function endTeammates($: EngineInterface) {
+  const ids = new Set(teamOf(await read($, team)).members.map(m => m.id))
+  await update($, rules, r => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([id]) => !ids.has(id))))
   await update($, team, () => ({ members: [], messages: [] }))
 }
 

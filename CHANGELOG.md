@@ -13,6 +13,8 @@
 - The team panel shows only the team's messages, between the lead and a teammate or two teammates: SendMessage to or from another session stays out. A plan answer or a shutdown request wakes its teammate like a message.
 - A session that ends other than by `/clear` (a resume, a branch, an exit) clears its team, as Claude Code brings none of its teammates back; the task list stays.
 - Task subjects are stored with credentials masked, as every other text from a tool input.
+- A mailbox delivery another mod consumes doesn't count, and one it rewrites is read as rewritten.
+- A session that ends other than by `/clear` takes its teammates' ⚠ notes with them.
 - Requires Claude Code 2.1.289 or later, which gives mods teammate spawns.
 - The roster never drops a teammate still running: past 24 it drops the oldest that shut down first.
 - The task list keeps 200 tasks, dropping the oldest done first, so work in progress stays however long the list.

@@ -162,6 +162,11 @@ test('the roster drops the oldest teammates that shut down first, never one stil
   expect(t.members.length).toBe(24)
   expect(t.members.filter(m => m.state !== 'ended').length).toBe(21) // every one still running
   expect(t.members.find(m => m.id === 'a0')).toBeUndefined()
+  // Teammates past 24 that shut down later are bounded then, not only at the next join.
+  let big = EMPTY
+  for (let i = 0; i < 30; i++) big = joinTeam(big, { id: `c${i}`, teammateId: `n${i}@x`, model: '' }, i)
+  for (let i = 0; i < 30; i++) big = setState(big, `c${i}`, 'ended', 100 + i)
+  expect(big.members.length).toBe(24)
   // A shutdown request wakes its teammate, which answers it.
   t = setState(t, 'b1', 'idle', 300)
   t = applyMessage(t, messageOf({ to: 'late', message: { type: 'shutdown_request', reason: 'done' } }, LEAD, 310)!)
@@ -225,7 +230,8 @@ const engine = (on: On, statuses?: string[]) => {
   on('ui.toast', () => ({ value: undefined }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
-  on('session.receive', (_$, e) => ({ text: e.text }))
+  // A delivery marked [consume] is consumed beneath the plugin; [rewrite] is rewritten.
+  on('session.receive', (_$, e) => (e.text.startsWith('[consume]') ? { consumed: 'a later hook' } : { text: e.text.replace('[rewrite] ', '') }))
   on('agent.spawn', (_$, e) =>
     e.isTeammate
       ? { model: e.model ?? e.parentModel, agentId: e.name === 'critic' ? 'critic@session-t' : `tm-${e.name}`, teammateId: `${e.name}@session-t` }
@@ -283,6 +289,21 @@ test('a teammate joins the team panel, not the agent cards, and waits between tu
   expect(statuses.at(-1)).toContain('team 1/1') // the status line follows the wake
 })
 
+test('a delivery a later hook consumes is not counted; a rewritten one shows as queued', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await spawnTeammate($, 'critic')
+  const from = { kind: 'peer', teammate: 'critic', isVerified: false }
+  await $.session.receive({ origin: from, text: '[consume] never queued' } as never)
+  await $.session.receive({ origin: from, text: '[consume] {"type":"idle_notification","from":"critic"}' } as never)
+  await $.session.receive({ origin: from, text: '[rewrite] as rewritten' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /never queued/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^as rewritten$/ })).toBeDefined()
+  expect(await ui.find({ text: /^1 working · 0 idle$/ })).toBeDefined() // the consumed idle notice didn't count
+  await ui.unmount()
+})
+
 test('a pane teammate\'s protocol answers show as answers; a failed idle notice marks it failed', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
   engine(on)
   await $.session.start(START)
@@ -328,7 +349,7 @@ test('a session that ends other than by /clear clears its team and keeps the tas
   engine(on, statuses)
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   await $.session.start(START)
-  await spawnTeammate($, 'scout')
+  await spawnTeammate($, 'scout', null) // ⚠: on the lead's model
   await $.tool.call({ tool: 'TaskCreate', subject: 'keep me', description: 'd', tool_use_id: 'k1' } as never)
   await $.session.end({ reason: 'resume', sessionId: 's' } as never)
   let ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
@@ -340,6 +361,12 @@ test('a session that ends other than by /clear clears its team and keeps the tas
   await $.tool.call({ tool: 'SendMessage', to: 'scout', message: 'are you there', tool_use_id: 'r1' } as never)
   ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /^TEAM · teammates$/ })).toBeUndefined()
+  await ui.unmount()
+  // A new teammate under the old id, its model named, carries no ⚠ from the one before.
+  await spawnTeammate($, 'scout')
+  ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^TEAM · teammates$/ })).toBeDefined()
+  expect(await ui.find({ text: /^⚠ $/ })).toBeUndefined()
   await ui.unmount()
 })
 

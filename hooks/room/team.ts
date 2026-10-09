@@ -71,7 +71,7 @@ export function rosterRows(members: readonly TeamMember[], n: number): TeamMembe
 export function setState(team: Team, id: string, state: MemberState, at: number): Team {
   return {
     ...team,
-    members: team.members.map(m => (m.id === id && m.state !== 'ended' && m.state !== state ? { ...m, state, since: at } : m)),
+    members: boundMembers(team.members.map(m => (m.id === id && m.state !== 'ended' && m.state !== state ? { ...m, state, since: at } : m))),
   }
 }
 
