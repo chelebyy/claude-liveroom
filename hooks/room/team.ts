@@ -62,9 +62,12 @@ export const memberNamed = (team: Team, name: string) => {
   return [...team.members].reverse().find(m => is(m) && m.state !== 'ended') ?? [...team.members].reverse().find(is)
 }
 
-/** The rows a roster of `n` shows: every teammate not shut down first, then the newest that did. */
+/**
+ * The rows a roster of `n` shows: those at work first, then those waiting or failed, then the newest
+ * that shut down, so the header's working count always has rows behind it.
+ */
 export function rosterRows(members: readonly TeamMember[], n: number): TeamMember[] {
-  const live = members.filter(m => m.state !== 'ended').slice(-n)
+  const live = [...members.filter(m => m.state === 'working'), ...members.filter(m => m.state === 'idle' || m.state === 'failed')].slice(0, n)
   const room = n - live.length
   return [...live, ...(room > 0 ? members.filter(m => m.state === 'ended').slice(-room) : [])]
 }
@@ -270,10 +273,13 @@ export function assignTask(tasks: readonly TeamTask[], taskId: string, subject: 
   return upsert(tasks, { ...was, subject: was.subject || subjectOf(subject), owner: ownerOf(owner) })
 }
 
-/** A task its teammate completed, as its completion notice says; one never seen joins as done. */
+/**
+ * A task its teammate completed, as its completion notice says: the notice's subject and sender are
+ * the current ones (a pane teammate may have renamed or taken the task unseen). One never seen joins.
+ */
 export function completeTask(tasks: readonly TeamTask[], taskId: string, subject: string, owner: string): TeamTask[] {
   const was = tasks.find(t => t.id === taskId) ?? { id: taskId, subject: '', status: 'pending' as const, owner: null }
-  return upsert(tasks, { ...was, subject: was.subject || subjectOf(subject), status: 'completed', owner: was.owner ?? ownerOf(owner) })
+  return upsert(tasks, { ...was, subject: subjectOf(subject) || was.subject, status: 'completed', owner: ownerOf(owner) ?? was.owner })
 }
 
 /** The task a member works on: one it owns that is in progress. */

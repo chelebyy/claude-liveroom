@@ -10,6 +10,7 @@ import {
   addTask,
   applyMessage,
   assignTask,
+  completeTask,
   boardRows,
   isTeamMessage,
   joinTeam,
@@ -134,6 +135,9 @@ test('the task list: created, updated, owned, deleted, and replaced by a TaskLis
   ])
   expect(ts.map(t => `${t.id}:${t.status}:${t.subject}`)).toEqual(['1:completed:probe task one', '9:pending:from a pane'])
   expect(listTasks(ts, 'not a list')).toEqual([])
+  // A completion notice carries the task's current subject and who did it.
+  const renamed = completeTask([{ id: '7', subject: 'old name', status: 'in_progress', owner: 'scout' }], '7', 'new name', 'critic')
+  expect(renamed[0]).toEqual({ id: '7', subject: 'new name', status: 'completed', owner: 'critic' })
   // A subject is stored with credentials masked, by every path that brings one.
   const secret = 'rotate ghp_abcdefghijklmnop now'
   expect(addTask([], { id: '1', subject: secret })[0]?.subject).not.toContain('abcdefghijklmnop')
@@ -186,6 +190,10 @@ test('the roster rows show every teammate still running before those that shut d
   for (let i = 0; i < 6; i++) t = setState(joinTeam(t, { id: `e${i}`, teammateId: `gone${i}@x`, model: '' }, i + 1), `e${i}`, 'ended', 10)
   expect(rosterRows(t.members, 6).map(m => m.id)).toEqual(['w', 'e1', 'e2', 'e3', 'e4', 'e5'])
   expect(rosterRows(t.members.slice(1), 3).map(m => m.id)).toEqual(['e3', 'e4', 'e5']) // the newest that shut down
+  // One at work before six newer that wait.
+  let w = joinTeam(EMPTY, { id: 'old', teammateId: 'old@x', model: '' }, 0)
+  for (let i = 0; i < 6; i++) w = setState(joinTeam(w, { id: `i${i}`, teammateId: `idle${i}@x`, model: '' }, i + 1), `i${i}`, 'idle', 10)
+  expect(rosterRows(w.members, 6)[0]?.id).toBe('old')
 })
 
 test('a long task list drops the oldest done first, so work in progress stays', () => {

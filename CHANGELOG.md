@@ -2,7 +2,7 @@
 
 ## Liveroom 0.4.0
 
-- **team** panel: an agent team's teammates, those still running first, ● working, ○ idle with how long it has waited, ■ shut down, ✗ failed, with the task each works on; ▣ marks one in a terminal pane of its own. Below them, the last three messages between the lead and its teammates, shutdown and plan answers included, each a summary or first line with credentials masked.
+- **team** panel: an agent team's teammates, those at work first, ● working, ○ idle with how long it has waited, ■ shut down, ✗ failed, with the task each works on; ▣ marks one in a terminal pane of its own. Below them, the last three messages between the lead and its teammates, shutdown and plan answers included, each a summary or first line with credentials masked.
 - **tasks** panel: the task list the Task tools keep, work in progress first, then what waits, then the newest done, each with its owner.
 - A teammate no longer shows as a finished agent card after its first turn: teammates leave the agent cards for the team panel, so the agents header and the status line's `agents` count leave them out. The status line counts working teammates (`team 1/2`), and the inline summary gives teammates still running a row, showing two agents instead of three when there is one, unless `panels` leaves `team` out.
 - A teammate whose spawn names no model and runs on the lead's gets the delegation rule's ⚠ in the team panel and the summary, as an agent card did.
@@ -15,7 +15,7 @@
 - Task subjects and owners are stored with credentials masked, as every other text from a tool input.
 - A teammate respawned under its address drops its old ⚠ unless the new spawn earns one; the inline summary lists working teammates first.
 - A mailbox delivery another mod consumes doesn't count, and one it rewrites is read as rewritten.
-- A pane teammate's task completion notice marks its task done on the board.
+- A pane teammate's task completion notice marks its task done on the board, under the subject and owner the notice gives.
 - The status line's team total counts every teammate not shut down, a failed one included.
 - A session that ends other than by `/clear` takes its teammates' ⚠ notes with them.
 - Requires Claude Code 2.1.289 or later, which gives mods teammate spawns.
