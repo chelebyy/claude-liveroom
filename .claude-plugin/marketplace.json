@@ -1,15 +1,15 @@
 {
-  "name": "claude-flightdeck",
+  "name": "claude-liveroom",
   "metadata": {
-    "description": "Flightdeck: a live agent dashboard for Claude Code. Main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log."
+    "description": "Liveroom: a live room for your Claude Code session, based on Flightdeck. Main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log."
   },
   "owner": {
-    "name": "Stephen Casella",
-    "url": "https://github.com/scasella"
+    "name": "chelebyy",
+    "url": "https://github.com/chelebyy"
   },
   "plugins": [
     {
-      "name": "flightdeck",
+      "name": "liveroom",
       "source": "./",
       "description": "A live pane showing what your session's agents are doing, drawn only from real session events."
     }

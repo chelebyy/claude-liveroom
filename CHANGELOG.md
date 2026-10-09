@@ -1,5 +1,13 @@
 # Changelog
 
+## Liveroom 0.1.0
+
+- Forked from Flightdeck 0.3.2 and renamed: the plugin is `liveroom`, the marketplace `claude-liveroom`, the command `/liveroom`, and settings live under `pluginConfigs["liveroom"]`.
+- Session state moved to the `liveroom` namespace, so counters start fresh once after switching from Flightdeck.
+- Behaviour is unchanged from Flightdeck 0.3.2.
+
+Entries below are Flightdeck's.
+
 ## 0.3.2
 
 - A background architect's advice is read from its `SubagentHandback` tool call, where the report actually arrives, with the hand-back text as a fallback. Bold markers no longer leak into the advice line.

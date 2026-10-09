@@ -1,13 +1,13 @@
 {
-  "name": "flightdeck",
-  "version": "0.3.2",
-  "description": "Flightdeck: a live agent dashboard for Claude Code. Main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log, all from real session events",
+  "name": "liveroom",
+  "version": "0.1.0",
+  "description": "Liveroom: a live room for your Claude Code session. Main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log, all from real session events. Based on Flightdeck by Stephen Casella.",
   "author": {
-    "name": "Stephen Casella",
-    "url": "https://github.com/scasella"
+    "name": "chelebyy",
+    "url": "https://github.com/chelebyy"
   },
-  "homepage": "https://github.com/scasella/claude-flightdeck",
-  "repository": "https://github.com/scasella/claude-flightdeck",
+  "homepage": "https://github.com/chelebyy/claude-liveroom",
+  "repository": "https://github.com/chelebyy/claude-liveroom",
   "license": "MIT",
   "keywords": [
     "claude-code",
