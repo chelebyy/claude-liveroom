@@ -58,7 +58,7 @@ import {
 import type { Config, Panel } from './core'
 import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel } from './room/panels'
 import type { CodexRun } from './room/core'
-import { CODEX_RESCUE, backgroundRun, bump, cliRun, endRun, linkRun, pluginOfName, pluginOfTool, pushRun, rescueRun, stepKey } from './room/core'
+import { CODEX_RESCUE, backgroundRun, bump, cliRun, endRun, linkRun, parseCodexCli, pluginOfName, pluginOfTool, pushRun, rescueRun, stepKey } from './room/core'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
 
@@ -1052,6 +1052,7 @@ export const register: Register = (on, options) => {
           {live.map(c => (
             <Box>
               <Text color={statusColor(c)}>{`${glyph(c)} `}</Text>
+              {room.rules[c.id] ? <Text color={C.amber}>⚠ </Text> : null}
               <Box width={Math.max(10, W - 30)}>
                 <Text wrap="truncate">{cardTitle(c)}</Text>
               </Box>
@@ -1150,14 +1151,16 @@ export const register: Register = (on, options) => {
 
   // Codex called straight from the shell.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const run = cliRun(e.tool_use_id, e.command ?? '', await $.clock.now())
-    if (!run) return next(e)
+    const cli = parseCodexCli(e.command ?? '')
+    if (!cli) return next(e)
+    const run = cliRun(e.tool_use_id, cli, await $.clock.now())
     await update($, codex, runs => pushRun(runs, run))
     return next(e).then(
       async ran => {
-        // A background shell returns as it starts; its end is not an event the pane sees.
+        // A background shell, or a codex the line sends off with `&`, returns as it starts; its end
+        // is not an event the pane sees.
         const isFailed = ran.deny !== undefined || ran.isError === true
-        if (e.run_in_background === true && !isFailed) await update($, codex, runs => backgroundRun(runs, run.id))
+        if ((e.run_in_background === true || cli.isDetached) && !isFailed) await update($, codex, runs => backgroundRun(runs, run.id))
         else await endCodex($, run, ran)
         return ran
       },

@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import {
+  backgroundRun,
   cliRun,
   codexEffort,
   endRun,
@@ -28,17 +29,22 @@ test('flags are read from prompts and command lines in every spelling', () => {
   expect(codexEffort('--effort medium')).toBe('medium')
   expect(isReadOnly('Diagnose this. Read-only, do not edit files.')).toBe(true)
   expect(isReadOnly('Implement the parser')).toBe(false)
+  // A limit on some files is not a read-only task.
+  expect(isReadOnly('Implement the fix, but do not edit generated files')).toBe(false)
+  expect(isReadOnly('Read only the README, then fix the bug')).toBe(false)
+  expect(isReadOnly("Review this, don't modify any files")).toBe(true)
+  expect(isReadOnly('Sadece görüş ver, salt okunur.')).toBe(true)
 })
 
 test('codex calls are read from their own option words, not their prompt or neighbours', () => {
-  expect(parseCodexCli('cd repo && codex exec "do it"')).toEqual({ kind: 'exec', model: null, effort: null })
+  expect(parseCodexCli('cd repo && codex exec "do it"')).toEqual({ kind: 'exec', model: null, effort: null, isDetached: false })
   expect(parseCodexCli('codex e "short form"')?.kind).toBe('exec')
   expect(parseCodexCli('codex review --base main')?.kind).toBe('review')
   // Global options before the subcommand.
-  expect(parseCodexCli('codex -m gpt-6-luna -c model_reasoning_effort=high exec "fix it"')).toEqual({ kind: 'exec', model: 'gpt-6-luna', effort: 'high' })
+  expect(parseCodexCli('codex -m gpt-6-luna -c model_reasoning_effort=high exec "fix it"')).toEqual({ kind: 'exec', model: 'gpt-6-luna', effort: 'high', isDetached: false })
   // Model as a config override, quoted the TOML way.
-  expect(parseCodexCli(`codex exec -c 'model="gpt-6.1-sol"' -c model_reasoning_effort="xhigh" go`)).toEqual({ kind: 'exec', model: 'gpt-6.1-sol', effort: 'xhigh' })
-  expect(parseCodexCli(`timeout 900 codex review --base main -c model='"gpt-6.1-sol"'`)).toEqual({ kind: 'review', model: 'gpt-6.1-sol', effort: null })
+  expect(parseCodexCli(`codex exec -c 'model="gpt-6.1-sol"' -c model_reasoning_effort="xhigh" go`)).toEqual({ kind: 'exec', model: 'gpt-6.1-sol', effort: 'xhigh', isDetached: false })
+  expect(parseCodexCli(`timeout 900 codex review --base main -c model='"gpt-6.1-sol"'`)).toEqual({ kind: 'review', model: 'gpt-6.1-sol', effort: null, isDetached: false })
   // The prompt is never an option.
   expect(parseCodexCli('codex exec "Compare --model gpt-6-astra with alternatives"')?.model).toBeNull()
   // Only a command in command position counts.
@@ -49,14 +55,34 @@ test('codex calls are read from their own option words, not their prompt or neig
   expect(parseCodexCli('FOO=1 /usr/local/bin/codex exec x')?.kind).toBe('exec')
 })
 
+test('a codex the line sends off with & is detached; redirections and && are not', () => {
+  expect(parseCodexCli('nohup codex exec -m gpt-6-luna x >codex.log 2>&1 &')?.isDetached).toBe(true)
+  expect(parseCodexCli('codex exec x | tee log &')?.isDetached).toBe(true)
+  expect(parseCodexCli('codex exec x && echo ok &')?.isDetached).toBe(true)
+  expect(parseCodexCli('codex exec x >log 2>&1')?.isDetached).toBe(false)
+  expect(parseCodexCli('codex exec x &>log; echo ok')?.isDetached).toBe(false)
+  expect(parseCodexCli('codex exec x |& tee log')?.isDetached).toBe(false)
+  expect(parseCodexCli('codex exec x && sleep 1')?.isDetached).toBe(false)
+  expect(parseCodexCli('sleep 1 & codex exec x')?.isDetached).toBe(false)
+})
+
+test('here-document bodies are data, not commands', () => {
+  expect(parseCodexCli("cat >run.sh <<'EOF'\ncodex exec -m gpt-6-luna x\nEOF")).toBeNull()
+  expect(parseCodexCli('cat <<-EOF >run.sh\n\tcodex exec x\n\tEOF')).toBeNull()
+  // The line goes on after the terminator, and a here-string stays on its own line.
+  expect(parseCodexCli('cat >a <<EOF\ncodex exec x\nEOF\ncodex review')?.kind).toBe('review')
+  expect(parseCodexCli('codex exec -m gpt-6-luna - <<EOF\nsummarise --model nope\nEOF')?.model).toBe('gpt-6-luna')
+  expect(parseCodexCli('codex exec x <<<"prompt"')?.kind).toBe('exec')
+})
+
 test('the delegation rule: model and effort named; review picks its own', () => {
   expect(rescueRun('a', '--model gpt-6.1-sol --effort xhigh fix it', 1).ruleNote).toBeNull()
   expect(rescueRun('b', '--model gpt-6.1-sol fix it', 1).ruleNote).toBe('no effort given')
   expect(rescueRun('c', 'fix it', 1).ruleNote).toBe('no model or effort given')
   expect(rescueRun('d', 'read-only, do not edit files', 1).kind).toBe('consult')
-  expect(cliRun('e', 'codex review', 1)?.ruleNote).toBeNull()
-  expect(cliRun('f', 'codex exec -m gpt-6-luna -c model_reasoning_effort=low x', 1)?.ruleNote).toBeNull()
-  expect(cliRun('g', 'ls -la', 1)).toBeNull()
+  expect(cliRun('e', parseCodexCli('codex review')!, 1).ruleNote).toBeNull()
+  expect(cliRun('f', parseCodexCli('codex exec -m gpt-6-luna -c model_reasoning_effort=low x')!, 1).ruleNote).toBeNull()
+  expect(parseCodexCli('ls -la')).toBeNull()
 })
 
 test('a run ends once, and the list keeps the newest', () => {
@@ -64,10 +90,19 @@ test('a run ends once, and the list keeps the newest', () => {
   runs = endRun(runs, 'a', 'done', 5)
   runs = endRun(runs, 'a', 'failed', 9)
   expect([runs[0]?.status, runs[0]?.endedAt]).toEqual(['done', 5])
-  let many = runs
-  for (let i = 0; i < 40; i++) many = pushRun(many, rescueRun(`r${i}`, 'x', i))
+  let many = pushRun(runs, rescueRun('live', 'x', 2))
+  many = backgroundRun(pushRun(many, rescueRun('bg', 'x', 3)), 'bg')
+  for (let i = 0; i < 40; i++) many = endRun(pushRun(many, rescueRun(`r${i}`, 'x', i)), `r${i}`, 'done', i)
   expect(many.length).toBe(30)
   expect(many[29]?.id).toBe('r39')
+  // Finished runs make room first: the run in flight and the background one stay.
+  expect(many.map(r => r.id).slice(0, 2)).toEqual(['live', 'bg'])
+  // With nothing finished left to drop, a background run goes; a run in flight never does.
+  let busy = many.filter(r => r.status !== 'done')
+  for (let i = 0; i < 30; i++) busy = pushRun(busy, rescueRun(`b${i}`, 'x', i))
+  expect(busy.length).toBe(31)
+  expect(busy.some(r => r.id === 'live')).toBe(true)
+  expect(busy.some(r => r.id === 'bg')).toBe(false)
 })
 
 test('plugins are read from names and MCP tools; tallies rank and draw', () => {
@@ -206,6 +241,29 @@ test('a background codex shell shows ◌ bg instead of a finished ✓', async ($
   expect(await ui.find({ text: /^◌ $/ })).toBeDefined()
   expect(await ui.find({ text: /^bg$/ })).toBeDefined()
   expect(await ui.find({ text: /^✓ $/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a codex the shell line sends off with & shows ◌ bg too', async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: {}, text: '' }))
+  await $.tool.call({ tool: 'Bash', command: 'nohup codex exec -m gpt-6-luna -c model_reasoning_effort=low x >codex.log 2>&1 &', tool_use_id: 'nh1' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^bg$/ })).toBeDefined()
+  expect(await ui.find({ text: /1 running · 1 total/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the inline summary marks a subagent that silently inherits the main model', async ($, on) => {
+  engine(on)
+  on('ui.toast', () => ({ value: undefined }))
+  on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-opus-5-5', agentId: `ag-${e.description}` }))
+  await $.turn.start({ text: 'fan out', turnId: 'R1' })
+  await $.agent.spawn(spawn('general-purpose', 'inherits'))
+  const inline = pane(80)
+  const ui = await $.ui.mount({ ...inline, props: { ...inline.props, placement: 'inline' as never }, surface: 'terminal' })
+  expect(await ui.find({ text: /MODELS · requests|AGENTS/ })).toBeUndefined() // the 8-row summary, not the docked panels
+  expect(await ui.find({ text: /^⚠ $/ })).toBeDefined()
   await ui.unmount()
 })
 

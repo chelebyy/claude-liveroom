@@ -19,8 +19,26 @@ export function codexEffort(text: string): string | null {
   return text.match(/model_reasoning_effort\s*=\s*["']?(\w+)/)?.[1] ?? flag(text, 'effort')
 }
 
+type Heredoc = { delim: string; isTabbed: boolean }
+
+/** Skips here-document bodies that start at `from`; returns where the line goes on after the last terminator. */
+function skipHeredocs(line: string, from: number, docs: readonly Heredoc[]): number {
+  let at = from
+  for (const d of docs) {
+    while (at < line.length) {
+      const end = line.indexOf('\n', at)
+      const stop = end === -1 ? line.length : end
+      const text = line.slice(at, stop)
+      at = stop + 1
+      if ((d.isTabbed ? text.replace(/^\t+/, '') : text) === d.delim) break
+    }
+  }
+  return at
+}
+
 /**
  * A shell line as words and separators: quotes removed, `;`, `&`, `|` and newlines kept apart.
+ * Redirections such as `2>&1` stay words, and here-document bodies are skipped: they are data.
  * Enough to find a command and its options; not a full shell parser.
  */
 export function shellWords(line: string): { word: string; isSep: boolean }[] {
@@ -28,8 +46,16 @@ export function shellWords(line: string): { word: string; isSep: boolean }[] {
   let word = ''
   let hasWord = false
   let quote: '"' | "'" | null = null
+  // Here-documents opened on the current line; their bodies start at the next newline.
+  const heredocs: Heredoc[] = []
+  // The next word is a here-document's delimiter: true after `<<-`, false after `<<`.
+  let delimNext: boolean | null = null
   const flush = () => {
-    if (hasWord) out.push({ word, isSep: false })
+    if (hasWord) {
+      out.push({ word, isSep: false })
+      if (delimNext !== null) heredocs.push({ delim: word, isTabbed: delimNext })
+      delimNext = null
+    }
     word = ''
     hasWord = false
   }
@@ -47,9 +73,25 @@ export function shellWords(line: string): { word: string; isSep: boolean }[] {
     } else if (ch === '\\' && i + 1 < line.length) {
       word += line[++i]
       hasWord = true
+    } else if (ch === '<' && line[i + 1] === '<' && line[i + 2] === '<') {
+      // A here-string: its word is on this line.
+      word += '<<<'
+      hasWord = true
+      i += 2
+    } else if (ch === '<' && line[i + 1] === '<') {
+      flush()
+      delimNext = line[i + 2] === '-'
+      out.push({ word: delimNext ? '<<-' : '<<', isSep: false })
+      i += delimNext ? 2 : 1
+    } else if ((ch === '&' && (line[i - 1] === '>' || line[i - 1] === '<' || line[i + 1] === '>')) || (ch === '|' && line[i - 1] === '>')) {
+      // `2>&1`, `&>log`, `<&3`, `>|file`: a redirection, not a separator.
+      word += ch
+      hasWord = true
     } else if (ch === ';' || ch === '&' || ch === '|' || ch === '\n') {
       flush()
+      delimNext = null
       out.push({ word: ch, isSep: true })
+      if (ch === '\n' && heredocs.length > 0) i = skipHeredocs(line, i + 1, heredocs.splice(0)) - 1
     } else if (ch === ' ' || ch === '\t') {
       flush()
     } else {
@@ -79,7 +121,32 @@ const configValue = (kv: string, key: string): string | null => {
   return at > 0 && kv.slice(0, at).trim() === key ? unquote(kv.slice(at + 1).trim()) || null : null
 }
 
-export type CodexCli = { kind: 'exec' | 'review'; model: string | null; effort: string | null }
+export type CodexCli = {
+  kind: 'exec' | 'review'
+  model: string | null
+  effort: string | null
+  /** The line itself sends the call to the background with `&`, so the shell returns as it starts. */
+  isDetached: boolean
+}
+
+/**
+ * Whether the command list that goes on at `k` ends in a lone `&`. Pipes, `&&` and `||` keep the
+ * list going, as `codex exec x | tee log &` does; `;` or a newline ends it in the foreground.
+ */
+function endsDetached(words: readonly { word: string; isSep: boolean }[], k: number): boolean {
+  for (; k < words.length; k++) {
+    const w = words[k]!
+    if (!w.isSep) continue
+    if (w.word === ';' || w.word === '\n') return false
+    const next = words[k + 1]
+    if (next?.isSep && (next.word === w.word || (w.word === '|' && next.word === '&'))) {
+      k++ // `&&`, `||` or `|&`
+      continue
+    }
+    if (w.word === '&') return true
+  }
+  return false
+}
 
 /**
  * A codex exec or review call in a shell line, read from its own option words: `-m` / `--model` /
@@ -126,7 +193,7 @@ export function parseCodexCli(line: string): CodexCli | null {
         // The first plain word is the subcommand; later ones are its prompt or arguments.
         if (kind === undefined) kind = w === 'exec' || w === 'e' ? 'exec' : w === 'review' ? 'review' : null
       }
-      if (kind) return { kind, model, effort }
+      if (kind) return { kind, model, effort, isDetached: endsDetached(words, k) }
       i = k
       continue
     }
@@ -136,9 +203,12 @@ export function parseCodexCli(line: string): CodexCli | null {
   return null
 }
 
-/** Whether a task asks Codex only for an opinion: no file edits. */
+/**
+ * Whether the whole task asks Codex only for an opinion: read-only, or no file edits at all.
+ * A narrower limit such as "do not edit generated files" leaves it a rescue.
+ */
 export function isReadOnly(prompt: string): boolean {
-  return /read-only|readonly|do not edit|salt okunur/i.test(prompt)
+  return /\bread-?only\b|salt okunur|\b(do not|don't|never) (edit|modify|change|touch) (any )?files\b/i.test(prompt)
 }
 
 /** The plugin behind a `plugin:skill` or `plugin:agent` name; null for a bare name. */
@@ -178,10 +248,8 @@ export function rescueRun(id: string, prompt: string, at: number): CodexRun {
   }
 }
 
-/** A Codex run from a shell command; null when the command doesn't call Codex. */
-export function cliRun(id: string, command: string, at: number): CodexRun | null {
-  const cli = parseCodexCli(command)
-  if (!cli) return null
+/** A Codex run from a codex call read off a shell command. */
+export function cliRun(id: string, cli: CodexCli, at: number): CodexRun {
   return {
     id,
     kind: cli.kind,
@@ -210,9 +278,25 @@ export function linkRun(runs: readonly CodexRun[], id: string, agentId: string):
   return runs.map(r => (r.id === id ? { ...r, agentId } : r))
 }
 
-/** The newest runs, oldest first, capped so a long session doesn't grow the state without end. */
+/**
+ * The newest runs, oldest first, capped so a long session doesn't grow the state without end.
+ * Finished runs go first, then background ones, whose end the pane never sees. A run still in
+ * flight stays until it ends, so its end can still find it.
+ */
 export function pushRun(runs: readonly CodexRun[], run: CodexRun, keep = 30): CodexRun[] {
-  return [...runs, run].slice(-keep)
+  let kept = [...runs, run]
+  const isFinished = (r: CodexRun) => r.status === 'done' || r.status === 'failed'
+  const isBackground = (r: CodexRun) => r.status === 'background'
+  for (const isDroppable of [isFinished, isBackground]) {
+    let extra = kept.length - keep
+    if (extra <= 0) break
+    kept = kept.filter(r => {
+      if (extra === 0 || !isDroppable(r)) return true
+      extra--
+      return false
+    })
+  }
+  return kept
 }
 
 export type Tally = Record<string, number>

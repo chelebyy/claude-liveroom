@@ -5,10 +5,12 @@
 - **codex** panel: work handed to Codex through the `codex:codex-rescue` agent or `codex exec` / `codex review`, with its kind, model, effort and a running clock. It uses the agent cards' status colours: ◐ running, ✓ done, ✗ failed.
 - **models** panel: requests per model and effort across the main loop and every subagent.
 - **skills** panel: skills called, and plugins used through their skills, agent types and MCP tools.
-- Delegation rule: a subagent that names no model and silently runs on the main model gets ⚠ on its card and a toast. A Codex hand-off without a model or effort gets ⚠ in the codex panel.
+- Delegation rule: a subagent that names no model and silently runs on the main model gets ⚠ on its card, its lane and its row in the inline summary, and a toast. A Codex hand-off without a model or effort gets ⚠ in the codex panel.
 - The default `panels` setting lists the three new panels. A custom `panels` value keeps its own list.
 - `delegationRule` option (default on) turns the ⚠ checks off.
-- Codex calls are read from their own option words: global options before `exec` or `review` work, `-c model=…` is read, and a prompt that mentions `--model` is not mistaken for one. A codex-rescue run ends with its subagent, and a background `codex exec` shows `◌ bg`.
+- Codex calls are read from their own option words: global options before `exec` or `review` work, `-c model=…` is read, and a prompt that mentions `--model` is not mistaken for one. A codex-rescue run ends with its subagent, and a background `codex exec`, from a background shell or a trailing `&`, shows `◌ bg`. Redirections such as `2>&1` are not separators, and here-document lines are not calls.
+- A rescue counts as a consult only when the whole task is read-only, not when it only spares some files.
+- The codex list keeps 30 runs by dropping finished ones first; a run still in flight is never dropped.
 
 ## Liveroom 0.1.0
 
