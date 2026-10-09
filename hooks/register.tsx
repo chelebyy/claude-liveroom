@@ -58,7 +58,7 @@ import type { Config, Panel } from './core'
 import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, loopDots, roomRows } from './room/panels'
 import type { CodexRun } from './room/core'
 import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, openerOf, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
-import type { Lang, LanguageOption, T } from './room/i18n'
+import type { LanguageOption, T } from './room/i18n'
 import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
@@ -1245,13 +1245,11 @@ const rules = atom({ plugin: 'liveroom', key: 'rules' } as const, {})
  * one too), so it lives here rather than in state: no hook pays a state read to translate.
  */
 let tx: T = makeT('en')
-let paneLang: Lang = 'en'
 
 /** Sets the pane's language: the option's, or under `auto` Claude Code's own `language` setting. */
 async function noteLanguage($: EngineInterface, option: LanguageOption) {
   const setting = option === 'auto' ? await $.settings.read().then(s => s.language, () => undefined) : undefined
-  paneLang = langOf(option, setting)
-  tx = makeT(paneLang)
+  tx = makeT(langOf(option, setting))
 }
 
 /**
@@ -1266,10 +1264,11 @@ function engineLine(text: string): string | null {
 }
 
 /**
- * Lower case for a label: a Turkish one ("MİMAR") the Turkish way, so it reads "mimar", not "mi̇mar";
- * an ASCII one ("ARCHITECT") the plain way, so it never reads "archıtect".
+ * Lower case for a label: one written in Turkish, known by a letter only Turkish has (İ ı Ş ş Ğ ğ),
+ * the Turkish way, so "MİMAR" reads "mimar", not "mi̇mar"; any other the plain way, so "ARCHITECT"
+ * never reads "archıtect" and "REVISIÓN" never "revısıón".
  */
-const lower = (s: string) => (paneLang === 'tr' && /[^\x00-\x7f]/.test(s) ? s.toLocaleLowerCase('tr') : s.toLowerCase())
+const lower = (s: string) => (/[İıŞşĞğ]/.test(s) ? s.toLocaleLowerCase('tr') : s.toLowerCase())
 
 /** The architect and gate panels take the pane's language for their names, unless the user named them. */
 function localizeLabels(cfg: Config, options: Readonly<Record<string, unknown>>) {

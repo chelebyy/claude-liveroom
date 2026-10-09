@@ -291,3 +291,19 @@ test('language tr: the gate totals turn to marks when their words would run past
   expect(await ui.find({ text: /^✗ 10 reddedildi$/ })).toBeDefined()
   await ui.unmount()
 })
+
+test('labels lower-case by their own script: Turkish letters the Turkish way, any other label the plain way', { options: { language: 'tr', architectLabel: 'REVISIÓN', gateLabel: 'KAPI DENETİMİ', openOnStart: false } }, async ($, on) => {
+  const statuses: string[] = []
+  engine(on, statuses)
+  on('tool.check', () => ({ decision: 'allow' }))
+  on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-fable-5-1', agentId: 'adv1' }))
+  await $.session.start(START)
+  await $.turn.start({ text: 'incele', turnId: 'A1' })
+  await $.agent.spawn({ prompt: 'p', description: 'final review', subagentType: 'fable-advisor:fable-advisor', model: 'claude-fable-5-1', tool_use_id: 'tu-a', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false } as never)
+  await $.tool.check({ tool: 'Read', input: { file_path: '/a' }, tool_use_id: 'k1' })
+  expect(statuses.at(-1)).toMatch(/^revisión danışıyor/) // not "revısıón"
+  const p = pane(80)
+  const ui = await $.ui.mount({ ...p, props: { ...p.props, placement: 'inline' as const }, surface: 'terminal' })
+  expect(await ui.find({ text: /^kapı denetimi $/ })).toBeDefined() // not "kapi deneti̇mi"
+  await ui.unmount()
+})
