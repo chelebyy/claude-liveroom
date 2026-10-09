@@ -63,6 +63,7 @@ export function shellWords(line: string): { word: string; isSep: boolean }[] {
     const ch = line[i] as string
     if (quote) {
       if (ch === quote) quote = null
+      else if (ch === '\\' && quote === '"' && line[i + 1] === '\n') i++ // a line continuation
       else if (ch === '\\' && quote === '"' && i + 1 < line.length) word += line[++i]
       else word += ch
       continue
@@ -70,6 +71,8 @@ export function shellWords(line: string): { word: string; isSep: boolean }[] {
     if (ch === '"' || ch === "'") {
       quote = ch
       hasWord = true
+    } else if (ch === '\\' && line[i + 1] === '\n') {
+      i++ // a line continuation: the command goes on
     } else if (ch === '\\' && i + 1 < line.length) {
       word += line[++i]
       hasWord = true
@@ -168,6 +171,7 @@ export function parseCodexCli(line: string): CodexCli | null {
     const isCodex = head && !head.isSep && /(^|\/)codex(\.exe)?$/.test(head.word)
     if (isCodex) {
       let kind: CodexCli['kind'] | null | undefined
+      let plainWords = 0
       let model: string | null = null
       let effort: string | null = null
       let k = j + 1
@@ -190,8 +194,11 @@ export function parseCodexCli(line: string): CodexCli | null {
           }
           continue
         }
-        // The first plain word is the subcommand; later ones are its prompt or arguments.
-        if (kind === undefined) kind = w === 'exec' || w === 'e' ? 'exec' : w === 'review' ? 'review' : null
+        // The first plain word is the subcommand, and `exec review` is a review too; later words
+        // are the prompt or arguments.
+        plainWords++
+        if (plainWords === 1) kind = w === 'exec' || w === 'e' ? 'exec' : w === 'review' ? 'review' : null
+        else if (plainWords === 2 && kind === 'exec' && w === 'review') kind = 'review'
       }
       if (kind) return { kind, model, effort, isDetached: endsDetached(words, k) }
       i = k
@@ -203,12 +210,18 @@ export function parseCodexCli(line: string): CodexCli | null {
   return null
 }
 
+/** A clause that, on its own, makes the whole task read-only. */
+const READ_ONLY_CLAUSE = /^(read-?only( mode)?|salt okunur|(do not|don't|never) (edit|modify|change|touch) (any )?files)$/i
+
 /**
- * Whether the whole task asks Codex only for an opinion: read-only, or no file edits at all.
- * A narrower limit such as "do not edit generated files" leaves it a rescue.
+ * Whether the whole task asks Codex only for an opinion: a clause that says read-only, or no
+ * file edits, and nothing more ("Read-only, do not edit files."). A narrower limit such as
+ * "do not edit files in docs", or a mention of a read-only field, leaves it a rescue.
  */
 export function isReadOnly(prompt: string): boolean {
-  return /\bread-?only\b|salt okunur|\b(do not|don't|never) (edit|modify|change|touch) (any )?files\b/i.test(prompt)
+  return prompt
+    .split(/[.,;:!?()\n]/)
+    .some(clause => READ_ONLY_CLAUSE.test(clause.trim().replace(/^["'`]+|["'`]+$/g, '').trim()))
 }
 
 /** The plugin behind a `plugin:skill` or `plugin:agent` name; null for a bare name. */

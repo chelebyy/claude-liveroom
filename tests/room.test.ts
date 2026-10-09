@@ -34,6 +34,9 @@ test('flags are read from prompts and command lines in every spelling', () => {
   expect(isReadOnly('Read only the README, then fix the bug')).toBe(false)
   expect(isReadOnly("Review this, don't modify any files")).toBe(true)
   expect(isReadOnly('Sadece görüş ver, salt okunur.')).toBe(true)
+  expect(isReadOnly('Do not edit files in docs; fix src/core.ts')).toBe(false)
+  expect(isReadOnly('Make the read-only field editable')).toBe(false)
+  expect(isReadOnly('Diagnose the crash (read-only)')).toBe(true)
 })
 
 test('codex calls are read from their own option words, not their prompt or neighbours', () => {
@@ -53,6 +56,13 @@ test('codex calls are read from their own option words, not their prompt or neig
   expect(parseCodexCli('codex --version')).toBeNull()
   expect(parseCodexCli('git diff | codex exec -m gpt-6-luna -')?.model).toBe('gpt-6-luna')
   expect(parseCodexCli('FOO=1 /usr/local/bin/codex exec x')?.kind).toBe('exec')
+  // `exec review` is a review; a prompt that starts with the word is not.
+  expect(parseCodexCli('codex exec review --base main')?.kind).toBe('review')
+  expect(parseCodexCli('codex exec -m gpt-6-luna review')?.kind).toBe('review')
+  expect(parseCodexCli('codex exec "review the parser"')?.kind).toBe('exec')
+  // A backslash-newline continues the command.
+  expect(parseCodexCli('cd repo && \\\n  codex exec -m gpt-6-luna x')?.model).toBe('gpt-6-luna')
+  expect(parseCodexCli('codex exec \\\n  -m gpt-6-luna x')?.model).toBe('gpt-6-luna')
 })
 
 test('a codex the line sends off with & is detached; redirections and && are not', () => {

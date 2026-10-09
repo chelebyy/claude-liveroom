@@ -545,6 +545,8 @@ export const register: Register = (on, options) => {
       $.clock.now(),
       readRoom($),
     ])
+    // A warning recorded earlier stays in the session; the option decides whether it shows now.
+    const ruleOf = (id: string) => (cfg.delegationRule ? room.rules[id] : undefined)
     const W = Math.max(40, e.props.bodyColumns)
     const layout = v.layout ?? cfg.layout
     const isWide = layout === 'wide' || (layout === 'auto' && W >= 110)
@@ -794,7 +796,7 @@ export const register: Register = (on, options) => {
               const isViewed = viewed === c.id
               return (
                 <Box>
-                  <Text color={room.rules[c.id] && !isViewed ? C.amber : statusColor(c)} bold={isViewed}>{`${isViewed ? '▶' : room.rules[c.id] ? '⚠' : glyph(c)} `}</Text>
+                  <Text color={ruleOf(c.id) && !isViewed ? C.amber : statusColor(c)} bold={isViewed}>{`${isViewed ? '▶' : ruleOf(c.id) ? '⚠' : glyph(c)} `}</Text>
                   <Box width={17}>
                     <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={shorten(cardTitle(c), 14)} onPress={expandOnPress(c.id)} />
                   </Box>
@@ -833,7 +835,7 @@ export const register: Register = (on, options) => {
                     {titleLines(cardTitle(c), cardW - 7, cardW - 4)[1]}
                   </Text>
                   <Text color={C.dim} wrap="truncate">
-                    {room.rules[c.id] ? <Text color={C.amber}>⚠ </Text> : null}
+                    {ruleOf(c.id) ? <Text color={C.amber}>⚠ </Text> : null}
                     {sameModel ? c.type : `${c.type} · ${prettyModel(c.model)}`}
                   </Text>
                   <Text dimColor wrap="truncate">
@@ -1052,7 +1054,7 @@ export const register: Register = (on, options) => {
           {live.map(c => (
             <Box>
               <Text color={statusColor(c)}>{`${glyph(c)} `}</Text>
-              {room.rules[c.id] ? <Text color={C.amber}>⚠ </Text> : null}
+              {ruleOf(c.id) ? <Text color={C.amber}>⚠ </Text> : null}
               <Box width={Math.max(10, W - 30)}>
                 <Text wrap="truncate">{cardTitle(c)}</Text>
               </Box>

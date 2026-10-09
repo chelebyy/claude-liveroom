@@ -7,9 +7,9 @@
 - **skills** panel: skills called, and plugins used through their skills, agent types and MCP tools.
 - Delegation rule: a subagent that names no model and silently runs on the main model gets ⚠ on its card, its lane and its row in the inline summary, and a toast. A Codex hand-off without a model or effort gets ⚠ in the codex panel.
 - The default `panels` setting lists the three new panels. A custom `panels` value keeps its own list.
-- `delegationRule` option (default on) turns the ⚠ checks off.
-- Codex calls are read from their own option words: global options before `exec` or `review` work, `-c model=…` is read, and a prompt that mentions `--model` is not mistaken for one. A codex-rescue run ends with its subagent, and a background `codex exec`, from a background shell or a trailing `&`, shows `◌ bg`. Redirections such as `2>&1` are not separators, and here-document lines are not calls.
-- A rescue counts as a consult only when the whole task is read-only, not when it only spares some files.
+- `delegationRule` option (default on) turns the ⚠ checks off, including warnings recorded before it was switched off.
+- Codex calls are read from their own option words: global options before `exec` or `review` work, `-c model=…` is read, and a prompt that mentions `--model` is not mistaken for one. A codex-rescue run ends with its subagent, and a background `codex exec`, from a background shell or a trailing `&`, shows `◌ bg`. Redirections such as `2>&1` are not separators, here-document lines are not calls, a backslash-newline continues a command, and `codex exec review` counts as a review.
+- A rescue counts as a consult only when a clause of its own says read-only or no file edits, not when it only spares some files or mentions a read-only field.
 - The codex list keeps 30 runs by dropping finished ones first; a run still in flight is never dropped.
 
 ## Liveroom 0.1.0
