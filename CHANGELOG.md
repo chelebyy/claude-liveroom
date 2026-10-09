@@ -10,7 +10,9 @@
 - A message or a turn of its own brings back an in-process teammate that stopped, as Claude Code revives it; an idle notice for a turn that ended on an API error marks the teammate failed.
 - `/clear` and `/liveroom reset` keep teammates, their ⚠ and the task list, since `/clear` clears only the lead's conversation; the team's messages go, and so does a pane teammate that shut down.
 - Teammates in panes of their own run outside the lead's process. Their state is read from their messages and the team's idle, shutdown and termination notices; their plan requests and plan and shutdown answers show as such, and anything else they write, JSON included, as a message. See "What is inferred".
-- The team panel shows only the team's messages, between the lead and a teammate or two teammates: SendMessage to or from another session stays out. A plan answer wakes its teammate like a message.
+- The team panel shows only the team's messages, between the lead and a teammate or two teammates: SendMessage to or from another session stays out. A plan answer or a shutdown request wakes its teammate like a message.
+- A session that ends other than by `/clear` (a resume, an exit) ends its teammates, as Claude Code brings none back; the task list stays.
+- The roster never drops a teammate still running: past 24 it drops the oldest that shut down first.
 - The task list keeps 200 tasks, dropping the oldest done first, so work in progress stays however long the list.
 - A teammate whose first step comes before its spawn's answer leaves the other-loops row when it joins.
 - A message from another agent or session reaches the log as its tag and sender (`teammate message from scout`), not as your prompt: Claude Code now puts a note before it. A background architect's hand-back behind that note is read as its advice again.

@@ -11,6 +11,7 @@ import {
   applyMessage,
   assignTask,
   boardRows,
+  endAll,
   isTeamMessage,
   joinTeam,
   listTasks,
@@ -144,6 +145,22 @@ test('a plan answer wakes its teammate; only the team\'s traffic is the team\'s'
   expect(isTeamMessage(t, msg('critic', 'other-session'))).toBe(false)
   expect(isTeamMessage(t, msg(LEAD, 'other-session'))).toBe(false)
   expect(isTeamMessage(t, msg('agent', 'critic'))).toBe(false) // a subagent outside the team
+})
+
+test('the roster drops the oldest teammates that shut down first, never one still running', () => {
+  let t = EMPTY
+  for (let i = 0; i < 30; i++) t = joinTeam(t, { id: `a${i}`, teammateId: `m${i}@x`, model: '' }, i)
+  expect(t.members.length).toBe(30) // a team has no size limit
+  for (let i = 0; i < 10; i++) t = setState(t, `a${i}`, 'ended', 100)
+  t = joinTeam(t, { id: 'b1', teammateId: 'late@x', model: '' }, 200)
+  expect(t.members.length).toBe(24)
+  expect(t.members.filter(m => m.state !== 'ended').length).toBe(21) // every one still running
+  expect(t.members.find(m => m.id === 'a0')).toBeUndefined()
+  // A shutdown request wakes its teammate, which answers it; a session's end ends them all.
+  t = setState(t, 'b1', 'idle', 300)
+  t = applyMessage(t, messageOf({ to: 'late', message: { type: 'shutdown_request', reason: 'done' } }, LEAD, 310)!)
+  expect(t.members.find(m => m.id === 'b1')?.state).toBe('working')
+  expect(endAll(t, 400).members.every(m => m.state === 'ended')).toBe(true)
 })
 
 test('a long task list drops the oldest done first, so work in progress stays', () => {
@@ -291,6 +308,20 @@ test('a pane teammate\'s JSON words are a message; a plan request shows; the mai
   await $.session.receive({ origin: from, text: '{"type":"teammate_terminated","from":"critic"}' } as never)
   ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
   expect(await ui.find({ text: /^■ $/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a session that ends other than by /clear ends its teammates and keeps the task list', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+  await $.session.start(START)
+  await spawnTeammate($, 'scout')
+  await $.tool.call({ tool: 'TaskCreate', subject: 'keep me', description: 'd', tool_use_id: 'k1' } as never)
+  await $.session.end({ reason: 'resume', sessionId: 's' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^■ $/ })).toBeDefined()
+  expect(await ui.find({ text: /^0 working · 0 idle$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^keep me$/ })).toBeDefined()
   await ui.unmount()
 })
 

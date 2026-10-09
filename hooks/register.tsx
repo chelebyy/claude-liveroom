@@ -63,7 +63,7 @@ import type { LanguageOption, T } from './room/i18n'
 import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
-import { LEAD, addTask, applyMessage, assignTask, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
+import { LEAD, addTask, applyMessage, assignTask, endAll, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -259,7 +259,7 @@ export const register: Register = (on, options) => {
     if (e.reason === 'clear') {
       await resetAll($)
       await refreshStatus($, cfg)
-    }
+    } else await endTeammates($)
     return next(e)
   })
 
@@ -1382,6 +1382,15 @@ async function resetRoom($: EngineInterface) {
   const ids = new Set(kept.map(m => m.id))
   await update($, rules, r => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([id]) => ids.has(id))))
   await update($, team, () => ({ members: kept, messages: [] }))
+}
+
+/**
+ * A session that ends other than by `/clear` (a resume, an exit) takes its teammates with it: Claude
+ * Code brings none back, so a resumed session shows them shut down. The task list stays.
+ */
+async function endTeammates($: EngineInterface) {
+  const at = await $.clock.now()
+  await update($, team, t => endAll(teamOf(t), at))
 }
 
 /** A teammate joins the team panel, working on the prompt it was spawned with. */

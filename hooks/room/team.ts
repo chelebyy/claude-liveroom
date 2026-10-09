@@ -38,8 +38,23 @@ export function teamOf(x: unknown): Team {
 export function joinTeam(team: Team, m: { id: string; teammateId: string; model: string }, at: number): Team {
   const name = m.teammateId.split('@')[0] || m.id
   const member: TeamMember = { id: m.id, name, model: m.model, state: 'working', since: at, isPane: m.id.includes('@'), sent: 0 }
-  return { ...team, members: [...team.members.filter(x => x.id !== m.id), member].slice(-MEMBERS) }
+  return { ...team, members: boundMembers([...team.members.filter(x => x.id !== m.id), member]) }
 }
+
+/**
+ * The roster kept to 24 by dropping the oldest teammates that shut down; a team has no size limit,
+ * so every one still running stays, past 24 if it must.
+ */
+function boundMembers(members: readonly TeamMember[]): TeamMember[] {
+  let extra = members.length - MEMBERS
+  return members.filter(m => !(m.state === 'ended' && extra-- > 0))
+}
+
+/** The session ended: its teammates end with it, as Claude Code brings none back on a resume. */
+export const endAll = (team: Team, at: number): Team => ({
+  ...team,
+  members: team.members.map(m => (m.state === 'ended' ? m : { ...m, state: 'ended', since: at })),
+})
 
 export const memberOf = (team: Team, id: string | undefined) => (id ? team.members.find(m => m.id === id) : undefined)
 
@@ -123,9 +138,10 @@ export function applyMessage(team: Team, msg: TeamMessage): Team {
     members: team.members.map(m => (m === sender ? { ...m, sent: m.sent + 1 } : m)),
     messages: [...team.messages, msg].slice(-MESSAGES),
   }
-  // A plan answer wakes its teammate too: approved, it implements; refused, it plans again.
+  // A plan answer wakes its teammate too (approved, it implements; refused, it plans again), and so
+  // does a shutdown request, which it answers.
   const isRevived = to?.state === 'ended' && !to.isPane
-  const wakes = msg.kind === 'text' || msg.kind === 'plan-response'
+  const wakes = msg.kind === 'text' || msg.kind === 'plan-response' || msg.kind === 'shutdown-request'
   if (wakes && to && to.state !== 'working' && (to.state !== 'ended' || isRevived)) next = reopen(next, to.id, msg.at)
   if (msg.kind === 'shutdown-response' && msg.approve === true && sender) next = setState(next, sender.id, 'ended', msg.at)
   return next
