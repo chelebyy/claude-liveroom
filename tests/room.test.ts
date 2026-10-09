@@ -30,6 +30,8 @@ test('flags are read from prompts and command lines in every spelling', () => {
   expect(flag('--model=gpt-6-luna', 'model')).toBe('gpt-6-luna')
   expect(flag('codex exec -m gpt-6-astra "x"', 'model', 'm')).toBe('gpt-6-astra')
   expect(flag('no flags here', 'model')).toBeNull()
+  expect(flag('--model ollama/qwen2.5-coder:32b --effort high fix it', 'model')).toBe('ollama/qwen2.5-coder:32b')
+  expect(flag('Use --model gpt-6.1-sol.', 'model')).toBe('gpt-6.1-sol')
   expect(codexEffort('codex exec -c model_reasoning_effort="high" go')).toBe('high')
   expect(codexEffort('--effort medium')).toBe('medium')
   expect(isReadOnly('Diagnose this. Read-only, do not edit files.')).toBe(true)
@@ -96,6 +98,11 @@ test('every codex call on a line is read, through wrappers and their options', (
   expect(parseCodexCalls('for f in a b; do codex review; done').map(c => c.kind)).toEqual(['review'])
   expect(parseCodexCli('while true; do codex exec x; done')?.kind).toBe('exec')
   expect(parseCodexCli('echo if codex exec x')).toBeNull()
+  // `!` reverses the exit status, so it gives no verdict; help starts no hand-off.
+  expect(parseCodexCli('! codex exec x')?.isExitShared).toBe(true)
+  expect(parseCodexCli('codex exec --help')).toBeNull()
+  expect(parseCodexCli('codex review -h')).toBeNull()
+  expect(parseCodexCli('codex exec "explain --help output"')?.kind).toBe('exec')
   // The exit status is the call's own only when nothing runs after it.
   expect(parseCodexCli('codex exec x 2>&1 | tail -20')?.isExitShared).toBe(true)
   expect(parseCodexCli('codex exec x; echo done')?.isExitShared).toBe(true)

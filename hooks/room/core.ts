@@ -7,11 +7,14 @@ export type { CodexRun, RunStatus }
 
 export const CODEX_RESCUE = 'codex:codex-rescue'
 
-/** The value of `--name x`, `--name=x` or `-n x` in a prompt or a command line. */
+/**
+ * The value of `--name x`, `--name=x` or `-n x` in a prompt or a command line: the whole word, so
+ * `ollama/qwen2.5-coder:32b` stays whole; a sentence's closing punctuation is not part of it.
+ */
 export function flag(text: string, long: string, short?: string): string | null {
   const names = short ? `--${long}|-${short}` : `--${long}`
-  const match = text.match(new RegExp(`(?:^|\\s)(?:${names})(?:=|\\s+)["']?([\\w.:-]+)`))
-  return match?.[1] ?? null
+  const match = text.match(new RegExp(`(?:^|\\s)(?:${names})(?:=|\\s+)["']?([^\\s"'\`,;()]+)`))
+  return match?.[1]?.replace(/[.:!?]+$/, '') || null
 }
 
 /** The Codex CLI takes effort as `-c model_reasoning_effort=high`; the rescue agent as `--effort`. */
@@ -235,6 +238,7 @@ export function parseCodexCalls(line: string): CodexCli[] {
       let effort: string | null = null
       let k = j + 1
       let isOptionsDone = false
+      let isHelp = false
       for (; k < words.length && !words[k]!.isSep; k++) {
         const w = words[k]!.word
         if (!isOptionsDone && w === '--') {
@@ -244,6 +248,7 @@ export function parseCodexCalls(line: string): CodexCli[] {
         if (!isOptionsDone && w.startsWith('-') && w.length > 1) {
           const eq = w.indexOf('=')
           const name = eq > 0 ? w.slice(0, eq) : w
+          if (name === '-h' || name === '--help') isHelp = true // prints help, starts nothing
           const value = eq > 0 ? w.slice(eq + 1) : CODEX_VALUE_OPTS.has(name) ? (words[k + 1]?.isSep ? null : (words[++k]?.word ?? null)) : null
           if (value === null) continue
           if (name === '-m' || name === '--model') model = unquote(value)
@@ -259,8 +264,11 @@ export function parseCodexCalls(line: string): CodexCli[] {
         if (plainWords === 1) kind = w === 'exec' || w === 'e' ? 'exec' : w === 'review' ? 'review' : null
         else if (plainWords === 2 && kind === 'exec' && w === 'review') kind = 'review'
       }
-      if (kind) {
-        calls.push({ kind, model, effort, isDetached: endsDetached(words, k), isExitShared: words.slice(k).some(w => !w.isSep), reachedBy: reachedAt(words, i) })
+      if (kind && !isHelp) {
+        // `! codex …` reverses the exit status, so it is not codex's own either.
+        const isNegated = words.slice(i, j).some(w => w.word === '!')
+        const isExitShared = isNegated || words.slice(k).some(w => !w.isSep)
+        calls.push({ kind, model, effort, isDetached: endsDetached(words, k), isExitShared, reachedBy: reachedAt(words, i) })
       }
       i = k
       continue
