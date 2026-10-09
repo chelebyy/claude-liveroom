@@ -6,6 +6,7 @@ import type { Colors, Palette } from '../core'
 import { prettyModel, shorten } from '../core'
 import type { CodexRun, RunStatus } from './core'
 import { meter, runGlyph, top } from './core'
+import type { Key, T } from './i18n'
 import type { RoomView } from './state'
 
 export type RoomPanel = 'models' | 'codex' | 'skills'
@@ -29,6 +30,8 @@ export type RoomCtx = {
   isRuleOn: boolean
   /** Flightdeck's live clock: ticks on the surface's own frame clock while `endAt` is null. */
   clock: (key: string, since: number, endAt: number | null, color: string) => JSX.Element
+  /** Text in the pane's language. */
+  t: T
 }
 
 export const isRoomPanel = (p: string): p is RoomPanel => (ROOM_PANELS as readonly string[]).includes(p)
@@ -52,24 +55,39 @@ export function roomRows(p: RoomPanel, room: RoomView, isRuleOn: boolean): numbe
   return frame + Math.min(5, Object.keys(room.skills).length) + Math.min(4, Object.keys(room.plugins).length)
 }
 
+/**
+ * How many loop dots share a row of `w` with `used` columns of text: Flightdeck's own count, capped
+ * so the row never runs past `w` once its text is longer, as the Turkish is.
+ */
+export const loopDots = (w: number, used: number) => Math.min(Math.max(4, w - 38), Math.max(1, w - used))
+
+/**
+ * The main panel's model name in a frame of `w`, beside its role (` · main`) and its state (`● working`):
+ * an unknown model id keeps 22 characters, so it gives way for the state and a space before it.
+ */
+export const mainModel = (model: string, role: string, state: string, w: number) => shorten(model, w - 5 - role.length - state.length)
+
 /** The cards' colours: running in the agent colour, done green, failed red; a run without a verdict dims. */
 export const statusColorOf = (C: Colors, s: RunStatus) =>
   s === 'failed' ? C.warn : s === 'done' ? C.gate : s === 'background' || s === 'ended' ? C.dim : C.agent
 
-const KIND_LABEL: Record<CodexRun['kind'], string> = { rescue: 'rescue', consult: 'consult', exec: 'exec', review: 'review' }
+const KIND_LABEL: Record<CodexRun['kind'], Key> = { rescue: 'rescue', consult: 'consult', exec: 'exec', review: 'review' }
 
 export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
   const { Box, Text } = x.els
-  const { C, room } = x
+  const { C, room, t } = x
   const RC = ROOM_COLORS[x.palette]
 
-  const frame = (color: string, title: string, hint: string, body: JSX.Element | JSX.Element[]) => (
+  // The title row keeps to one line: a hint that can't share it falls back to its short form, then
+  // to nothing. The frame's border and padding take 4 columns.
+  const fitHint = (title: string, hints: string[]) => hints.find(h => title.length + 1 + h.length <= w - 4) ?? ''
+  const frame = (color: string, title: string, hints: string[], body: JSX.Element | JSX.Element[]) => (
     <Box flexDirection="column" borderStyle="round" borderColor={color} paddingX={1} width={w}>
       <Box justifyContent="space-between">
         <Text color={color} bold>
           {title}
         </Text>
-        <Text color={C.dim}>{hint}</Text>
+        <Text color={C.dim}>{fitHint(title, hints)}</Text>
       </Box>
       {body}
     </Box>
@@ -82,8 +100,8 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
     const barW = Math.max(4, Math.min(10, w - 32))
     return frame(
       C.main,
-      'MODELS · requests',
-      String(total),
+      t('MODELS · requests'),
+      [String(total)],
       rows.map(([key, n]) => {
         const [model, effort] = key.split(' · ')
         return (
@@ -114,20 +132,23 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
     const modelWidth = (r: CodexRun) => Math.max(6, w - 4 - 12 - (r.effort ? r.effort.length + 4 : 1) - 8)
     return frame(
       RC.codex,
-      'CODEX · hand-offs',
-      `${running} running${unseen > 0 ? ` · ${unseen} bg` : ''} · ${room.codex.length} total`,
+      t('CODEX · hand-offs'),
+      [
+        [t('{n} running', { n: running }), ...(unseen > 0 ? [t('{n} bg', { n: unseen })] : []), t('{n} total', { n: room.codex.length })].join(' · '),
+        t('{n} total', { n: room.codex.length }),
+      ],
       [
         ...shown.map(r => (
           <Box justifyContent="space-between">
             <Text wrap="truncate">
               <Text color={statusColorOf(C, r.status)}>{`${runGlyph(r.status)} `}</Text>
-              <Text color={isLive(r) ? C.text : C.dim}>{KIND_LABEL[r.kind]}</Text>
+              <Text color={isLive(r) ? C.text : C.dim}>{t(KIND_LABEL[r.kind])}</Text>
               {x.isRuleOn && r.ruleNote ? <Text color={C.amber}>{' ⚠'}</Text> : null}
             </Text>
             <Box flexShrink={0}>
               <Text>
                 <Text color={isLive(r) ? C.text : C.dim} bold={r.status === 'running'}>
-                  {shorten(r.model ?? (r.kind === 'review' ? 'own model' : 'default'), modelWidth(r))}
+                  {shorten(r.model ?? (r.kind === 'review' ? t('own model') : t('default')), modelWidth(r))}
                 </Text>
                 {r.effort ? <Text color={C.dim}>{` · ${r.effort} `}</Text> : <Text> </Text>}
               </Text>
@@ -138,7 +159,7 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
         ...(warned > 0
           ? [
               <Text color={C.amber} wrap="truncate">
-                {`⚠ ${warned} without model or effort`}
+                {t('⚠ {n} without model or effort', { n: warned })}
               </Text>,
             ]
           : []),
@@ -152,8 +173,8 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
   ]
   return frame(
     RC.skills,
-    'SKILLS · plugins',
-    `${Object.keys(room.skills).length} · ${Object.keys(room.plugins).length}`,
+    t('SKILLS · plugins'),
+    [`${Object.keys(room.skills).length} · ${Object.keys(room.plugins).length}`],
     rows.map(r => (
       <Box justifyContent="space-between">
         <Text color={r.isPlugin ? C.dim : C.text} wrap="truncate">

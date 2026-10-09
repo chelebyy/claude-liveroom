@@ -449,6 +449,16 @@ export function noteRule(rules: Readonly<Record<string, string>>, id: string, no
   return Object.fromEntries([...rest, [id, note] as const].slice(-keep))
 }
 
+/**
+ * A tagged turn opener's tag and sender, read as Flightdeck's promptLine reads them, so the log can
+ * name them in the pane's language; null for the user's own words.
+ */
+export function openerOf(text: string): { label: string; from: string | null } | null {
+  const tag = /^\s*<([a-z][\w-]*)/i.exec(text)?.[1]
+  if (!tag) return null
+  return { label: tag.replace(/[-_]/g, ' '), from: /\bfrom="([^"]+)"/.exec(text)?.[1]?.slice(0, 8) ?? null }
+}
+
 export type Tally = Record<string, number>
 
 export function bump(tally: Readonly<Tally>, key: string): Tally {

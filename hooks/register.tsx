@@ -25,7 +25,6 @@ import {
   fmtDuration,
   fmtTimer,
   fmtUsd,
-  plural,
   gateSummary,
   gauge,
   isAdvising,
@@ -56,9 +55,11 @@ import {
   stepLoop,
 } from './core'
 import type { Config, Panel } from './core'
-import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, roomRows } from './room/panels'
+import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, loopDots, mainModel, roomRows } from './room/panels'
 import type { CodexRun } from './room/core'
-import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
+import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, openerOf, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
+import type { LanguageOption, T } from './room/i18n'
+import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
 
@@ -139,10 +140,10 @@ async function refreshStatus($: EngineInterface, cfg: Config) {
   const running = cards.filter(c => c.status === 'running').length
   const s = gateSummary(g)
   const parts = [
-    u.pct !== null ? `ctx ${Math.round(u.pct)}%` : null,
-    cards.length > 0 ? `agents ${running}/${cards.length}` : null,
-    a.consults.length > 0 || a.ids.length > 0 ? `${cfg.architectLabel.toLowerCase()} ${isAdvising(a) ? 'advising' : a.consults.length}` : null,
-    s.deny > 0 ? `denied ${s.deny}` : null,
+    u.pct !== null ? tx('ctx {n}%', { n: Math.round(u.pct) }) : null,
+    cards.length > 0 ? tx('agents {running}/{total}', { running, total: cards.length }) : null,
+    a.consults.length > 0 || a.ids.length > 0 ? `${lower(cfg.architectLabel)} ${isAdvising(a) ? tx('advising') : a.consults.length}` : null,
+    s.deny > 0 ? tx('denied {n}', { n: s.deny }) : null,
   ]
   // Only fields with something to say; with none, no status entry at all.
   const shown = parts.filter(Boolean)
@@ -161,7 +162,7 @@ async function consultStarted($: EngineInterface, cfg: Config, id: string, via: 
   const at = await $.clock.now()
   await update($, architect, a => startConsult(normalize(DEFAULT_ARCHITECT, a), { id, at, moment, via }))
   if (moment === 'before done') await update($, turn, x => ({ ...normalize(DEFAULT_TURN, x), isReviewing: true }))
-  await say($, cfg.architectLabel.toLowerCase(), cfg.moments ? `${moment} · ${via}` : `consulted · ${via}`, 'consult')
+  await say($, lower(cfg.architectLabel), cfg.moments ? tx('{moment} · {via}', { moment: tx(moment), via }) : tx('consulted · {via}', { via }), 'consult')
   await refreshStatus($, cfg)
 }
 
@@ -171,13 +172,13 @@ async function consultEnded($: EngineInterface, cfg: Config, advice: string | nu
   const text = first ? shorten(first.replace(/^[#>*\s-]+/, ''), 160) : null
   await update($, architect, a => endConsult(normalize(DEFAULT_ARCHITECT, a), at, text, id))
   await update($, turn, t => ({ ...normalize(DEFAULT_TURN, t), isReviewing: false }))
-  await say($, cfg.architectLabel.toLowerCase(), text ? `advice: ${shorten(text, 60)}` : 'advice returned', 'consult')
+  await say($, lower(cfg.architectLabel), text ? tx('advice: {text}', { text: shorten(text, 60) }) : tx('advice returned'), 'consult')
   await refreshStatus($, cfg)
 }
 
 async function noteAdvice($: EngineInterface, cfg: Config, advice: string) {
   await update($, architect, x => ({ ...normalize(DEFAULT_ARCHITECT, x), lastAdvice: advice }))
-  await say($, cfg.architectLabel.toLowerCase(), `advice: ${shorten(advice, 60)}`, 'consult')
+  await say($, lower(cfg.architectLabel), tx('advice: {text}', { text: shorten(advice, 60) }), 'consult')
 }
 
 async function isArchitectType($: EngineInterface, cfg: Config, type: string) {
@@ -223,9 +224,11 @@ export const register: Register = (on, options) => {
   const callLoop = new Map<string, string | null>()
 
   on('session.start', async ($, e, next) => {
+    await noteLanguage($, cfg.language)
+    localizeLabels(cfg, options)
     await $.command.register({
       name: 'liveroom',
-      description: 'Liveroom, the live agent dashboard: open, close, reset, or set the layout',
+      description: tx('Liveroom, the live agent dashboard: open, close, reset, or set the layout'),
       argumentHint: '[open|close|reset|layout auto|compact|wide|mini]',
     })
     await migrate($)
@@ -258,23 +261,23 @@ export const register: Register = (on, options) => {
     const [verb = 'open', arg = ''] = e.args.trim().split(/\s+/)
     if (verb === 'close') {
       await $.ui.close({ id: PANE })
-      return { text: 'Liveroom closed.' }
+      return { text: tx('Liveroom closed.') }
     }
     if (verb === 'reset') {
       await resetAll($)
       await refreshStatus($, cfg)
-      return { text: 'Liveroom reset.' }
+      return { text: tx('Liveroom reset.') }
     }
     if (verb === 'layout') {
       const layout: Layout | null = arg === 'compact' || arg === 'wide' || arg === 'auto' || arg === 'mini' ? arg : null
-      if (!layout) return { text: 'Usage: /liveroom layout auto|compact|wide|mini' }
+      if (!layout) return { text: tx('Usage: /liveroom layout auto|compact|wide|mini') }
       await update($, view, v => ({ ...normalize(DEFAULT_VIEW, v), layout }))
       const opened = await openPane($)
-      return { text: opened.isPlaced ? `Liveroom layout: ${layout}.` : `Layout set to ${layout}; the pane is not shown yet: ${opened.reason}` }
+      return { text: opened.isPlaced ? tx('Liveroom layout: {layout}.', { layout }) : tx('Layout set to {layout}; the pane is not shown yet: {reason}', { layout, reason: opened.reason }) }
     }
     const opened = await openPane($)
-    if (!opened.isPlaced) return { text: `Liveroom is not shown yet: ${opened.reason}` }
-    return { text: 'Liveroom opened. Focus it with ctrl+x tab; 1-6 expand cards, f/s/o open the gate rows.' }
+    if (!opened.isPlaced) return { text: tx('Liveroom is not shown yet: {reason}', { reason: opened.reason }) }
+    return { text: tx('Liveroom opened. Focus it with ctrl+x tab; 1-6 expand cards, f/s/o open the gate rows.') }
   })
 
   on('classic.UserPromptSubmit', async ($, e, next) => {
@@ -306,7 +309,7 @@ export const register: Register = (on, options) => {
       if (advice && advice !== a.lastAdvice) await noteAdvice($, cfg, advice)
     } else if (e.text) {
       const p = promptLine(e.text)
-      await say($, p.who, p.text)
+      await say($, p.who, engineLine(e.text) ?? p.text)
     }
     return next(e)
   })
@@ -327,7 +330,7 @@ export const register: Register = (on, options) => {
     if (cards.some(c => c.id === id)) {
       const step = { model: e.model, usage: result.usage, stopReason: result.stopReason }
       await update($, agents, list => listOf<unknown>(list).map(normalizeCard).map(c => (c.id === id ? applyStep(c, step) : c)))
-      if (result.stopReason === 'max_tokens') await say($, await whoIs($, id), 'hit max_tokens', 'error', id)
+      if (result.stopReason === 'max_tokens') await say($, await whoIs($, id), tx('hit max_tokens'), 'error', id)
     } else if (!a.ids.includes(id)) {
       const now = await $.clock.now()
       await update($, loops, l => stepLoop(listOf<Loop>(l), id, now))
@@ -356,7 +359,7 @@ export const register: Register = (on, options) => {
         const u = normalize(DEFAULT_USAGE, x)
         return { ...u, compactions: u.compactions + 1, lastCompactAt: now }
       })
-      await say($, 'main', `context compacted (${e.trigger})`)
+      await say($, 'main', tx('context compacted ({trigger})', { trigger: e.trigger }))
     }
     return done
   })
@@ -376,7 +379,7 @@ export const register: Register = (on, options) => {
       await update($, gate, g => recordCheck(normalizeGate(g), check))
       // The status line updates when the call settles; only a refusal ends here.
       if (verdict.decision === 'deny') {
-        await say($, 'gate', `denied by rule · ${check.detail}`, 'error')
+        await say($, 'gate', tx('denied by rule · {detail}', { detail: check.detail }), 'error')
         await refreshStatus($, cfg)
       }
     }
@@ -422,7 +425,7 @@ export const register: Register = (on, options) => {
       )
     }
     // The log keeps what is worth a glance: refusals, errors and edits; the rest is on the cards.
-    if (ran.deny !== undefined) await say($, await whoIs($, e.agentId), `${text}  denied`, 'error', e.agentId ?? null)
+    if (ran.deny !== undefined) await say($, await whoIs($, e.agentId), tx('{text}  denied', { text }), 'error', e.agentId ?? null)
     else if (hasFailed) await say($, await whoIs($, e.agentId), `${text}  ✗`, 'error', e.agentId ?? null)
     else if (isEdit) await say($, await whoIs($, e.agentId), text, 'info', e.agentId ?? null)
     if (isSettled || !didRun) await refreshStatus($, cfg)
@@ -445,7 +448,7 @@ export const register: Register = (on, options) => {
             return { ...y, seen: [...listOf<string>(y.seen), id].slice(-60) }
           })
           opened.add(id)
-          await consultStarted($, cfg, id, `${block.name} tool`)
+          await consultStarted($, cfg, id, tx('{name} tool', { name: block.name }))
         } else if (block.type.endsWith('_tool_result') && block.tool_use_id) {
           const id = block.tool_use_id
           const isOpen = opened.has(id) || (await getArchitect($)).consults.some(c => c.id === id && c.endAt === null)
@@ -481,7 +484,7 @@ export const register: Register = (on, options) => {
     }
     await update($, agents, list => [...listOf<unknown>(list).map(normalizeCard), card].slice(-24))
     await update($, loops, l => listOf<Loop>(l).filter(x => x.id !== id))
-    await say($, shorten(cardTitle(card), 12), `spawned · ${card.type}`, 'info', id)
+    await say($, shorten(cardTitle(card), 12), tx('spawned · {type}', { type: card.type }), 'info', id)
     await refreshStatus($, cfg)
     return started
   })
@@ -518,7 +521,7 @@ export const register: Register = (on, options) => {
       )
       const card = cards.find(c => c.id === id)
       const took = card ? fmtDuration(now - card.spawnedAt) : ''
-      await say($, await whoIs($, id), status === 'done' ? `done · ${took}` : status, status === 'done' ? 'done' : 'error', id)
+      await say($, await whoIs($, id), status === 'done' ? tx('done · {took}', { took }) : tx(status), status === 'done' ? 'done' : 'error', id)
     } else {
       await update($, loops, l => listOf<Loop>(l).map(x => (x.id === id ? { ...x, isDone: true, lastAt: now } : x)))
     }
@@ -547,7 +550,10 @@ export const register: Register = (on, options) => {
       readRoom($),
     ])
     // A warning recorded earlier stays in the session; the option decides whether it shows now.
-    const ruleOf = (id: string) => (cfg.delegationRule ? room.rules[id] : undefined)
+    const ruleOf = (id: string) => {
+      const note = cfg.delegationRule ? room.rules[id] : undefined
+      return note && isKey(note) ? tx(note) : note
+    }
     const W = Math.max(40, e.props.bodyColumns)
     const layout = v.layout ?? cfg.layout
     const isWide = layout === 'wide' || (layout === 'auto' && W >= 110)
@@ -572,7 +578,7 @@ export const register: Register = (on, options) => {
       skills: isRoomEmpty('skills', room),
     }
     const panels = cfg.panels.filter(p => !isEmpty[p])
-    const decider = m.mode === 'auto' ? 'classifier' : 'you'
+    const decider = m.mode === 'auto' ? tx('classifier') : tx('you')
 
     // A connector between panels: animated while its flow is live, a dim line otherwise.
     const rail = (key: string, active: boolean, color: string, width: number, marks: number[] = [], isMerge = false) =>
@@ -601,26 +607,27 @@ export const register: Register = (on, options) => {
     // ---- main
     const effortN = { low: 1, medium: 2, high: 3, xhigh: 4, max: 4 }[m.effort] ?? 0
     const ctxGauge = u.pct !== null ? gauge(u.pct, 10) : null
+    const mainState = m.isRunning ? tx('● working') : tx('○ idle')
     const mainPanel = (w: number) => (
       <Box flexDirection="column" borderStyle="round" borderColor={C.main} paddingX={1} width={w}>
         <Box justifyContent="space-between">
           <Text color={C.main} bold>
-            {modelName} · main
+            {mainModel(modelName, ` · ${tx('main')}`, mainState, w)} · {tx('main')}
           </Text>
-          <Text color={m.isRunning ? C.main : C.dim}>{m.isRunning ? '● working' : '○ idle'}</Text>
+          <Text color={m.isRunning ? C.main : C.dim}>{mainState}</Text>
         </Box>
         <Text wrap="truncate">
-          <Text dimColor>effort </Text>
+          <Text dimColor>{tx('effort ')}</Text>
           <Text color={C.main}>{'▮'.repeat(effortN) + '▯'.repeat(4 - effortN)} </Text>
           <Text color={C.main} bold>
             {m.effort || '—'}
           </Text>
-          {m.mode ? <Text dimColor>{`   mode ${m.mode}`}</Text> : null}
-          <Text dimColor>{`   ${m.steps} req`}</Text>
+          {m.mode ? <Text dimColor>{tx('   mode {mode}', { mode: m.mode })}</Text> : null}
+          <Text dimColor>{tx('   {n} req', { n: m.steps })}</Text>
         </Text>
         {ctxGauge ? (
           <Text wrap="truncate">
-            <Text dimColor>ctx </Text>
+            <Text dimColor>{tx('ctx ')}</Text>
             <Text color={u.pct !== null && u.pct >= 80 ? C.warn : C.main}>{ctxGauge.on}</Text>
             <Text color={C.faint}>{ctxGauge.off}</Text>
             <Text bold>{` ${Math.round(u.pct ?? 0)}%`}</Text>
@@ -657,10 +664,10 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" borderStyle="round" borderColor={C.arch} paddingX={1} width={w}>
           <Box justifyContent="space-between">
             <Text color={C.arch} bold>
-              {cfg.architectLabel} · {advising ? 'advising' : 'on call'}
+              {cfg.architectLabel} · {advising ? tx('advising') : tx('on call')}
             </Text>
             <Text>
-              <Text dimColor>consults </Text>
+              <Text dimColor>{tx('consults ')}</Text>
               <Text color={C.arch} bold>
                 {a.consults.length}
               </Text>
@@ -670,11 +677,11 @@ export const register: Register = (on, options) => {
           {lastConsult ? (
             <Text dimColor wrap="truncate">
               {advising
-                ? `consulting since ${fmtClock(lastConsult.at)}`
-                : `last ${fmtDuration(now - (lastConsult.endAt ?? lastConsult.at))} ago · took ${fmtDuration((lastConsult.endAt ?? now) - lastConsult.at)}`}
+                ? tx('consulting since {t}', { t: fmtClock(lastConsult.at), abl: clockAblative(fmtClock(lastConsult.at)) })
+                : tx('last {d} ago · took {d2}', { d: fmtDuration(now - (lastConsult.endAt ?? lastConsult.at)), d2: fmtDuration((lastConsult.endAt ?? now) - lastConsult.at) })}
             </Text>
           ) : (
-            <Text dimColor>not consulted yet</Text>
+            <Text dimColor>{tx('not consulted yet')}</Text>
           )}
           {archWarning ? (
             <Text color={C.amber} wrap="truncate">
@@ -687,11 +694,11 @@ export const register: Register = (on, options) => {
                 const isOn = lastConsult?.moment === mo
                 return (
                   <Text color={isOn ? C.arch : C.dim} bold={isOn}>
-                    {isOn ? '◆' : '◇'} {mo}
+                    {isOn ? '◆' : '◇'} {tx(mo)}
                   </Text>
                 )
               })}
-              <Text color={C.faint}>(inferred)</Text>
+              <Text color={C.faint}>{tx('(inferred)')}</Text>
             </Box>
           ) : null}
           {a.lastAdvice ? (
@@ -708,18 +715,22 @@ export const register: Register = (on, options) => {
     const verdictColor = (c: Check) =>
       c.verdict === 'rule' ? C.gate : c.verdict === 'cleared' ? C.cleared : c.verdict === 'ask' ? C.amber : C.warn
     const gatePanel = (w: number) => {
+      // The totals keep to one row: when their words run past the frame (4 columns of border and
+      // padding), as the Turkish do at 40 columns, the colored marks carry the counts alone.
+      const wordy = [tx(' {n} allowed  ', { n: s.rule }), ` ${s.cleared} ${decider}  `, s.ask > 0 ? tx('■ {n} pending  ', { n: s.ask }) : '', tx('✗ {n} denied', { n: s.deny })]
+      const totals = 2 + wordy.join('').length > w - 4 ? [` ${s.rule}  `, ` ${s.cleared}  `, s.ask > 0 ? `■ ${s.ask}  ` : '', `✗ ${s.deny}`] : wordy
       const strip = g.recent.slice(-Math.max(8, w - 4))
       const open = v.gateOpen
       return (
         <Box flexDirection="column" borderStyle="round" borderColor={C.gate} paddingX={1} width={w}>
           <Box justifyContent="space-between">
             <Text color={C.gate} bold>
-              {cfg.gateLabel} · permissions
+              {cfg.gateLabel} · {tx('permissions')}
             </Text>
-            <Text dimColor>{`${s.total} checks`}</Text>
+            <Text dimColor>{tx('{n} checks', { n: s.total })}</Text>
           </Box>
           <Box>
-            {strip.length === 0 ? <Text color={C.faint}>no checks yet</Text> : null}
+            {strip.length === 0 ? <Text color={C.faint}>{tx('no checks yet')}</Text> : null}
             {strip.map(c => (
               <Text color={verdictColor(c)} dimColor={c.inSubagent}>
                 {c.verdict === 'deny' ? '✗' : '■'}
@@ -728,12 +739,12 @@ export const register: Register = (on, options) => {
           </Box>
           <Text wrap="truncate">
             <Text color={C.gate}>■</Text>
-            <Text dimColor>{` ${s.rule} allowed  `}</Text>
+            <Text dimColor>{totals[0]}</Text>
             <Text color={C.cleared}>■</Text>
-            <Text dimColor>{` ${s.cleared} ${decider}  `}</Text>
-            {s.ask > 0 ? <Text color={C.amber}>{`■ ${s.ask} pending  `}</Text> : null}
-            <Text color={s.deny > 0 ? C.warn : C.dim}>{`✗ ${s.deny} denied`}</Text>
-            {w >= 80 && g.recent.some(c => c.inSubagent) ? <Text color={C.faint}>{'  dim: in subagents'}</Text> : null}
+            <Text dimColor>{totals[1]}</Text>
+            {s.ask > 0 ? <Text color={C.amber}>{totals[2]}</Text> : null}
+            <Text color={s.deny > 0 ? C.warn : C.dim}>{totals[3]}</Text>
+            {w >= 80 && g.recent.some(c => c.inSubagent) ? <Text color={C.faint}>{tx('  dim: in subagents')}</Text> : null}
           </Text>
           <Box columnGap={2}>
             {(['file', 'shell', 'other'] as const).map((b: Bucket) => {
@@ -743,8 +754,8 @@ export const register: Register = (on, options) => {
                 <Button
                   key={`gate-${b}`}
                   plain
-                  hotkey={b[0]}
-                  label={`${b} ${n}${open === b ? ' ▾' : ''}`}
+                  hotkey={tx(b)[0]}
+                  label={`${tx(b)} ${n}${open === b ? ' ▾' : ''}`}
                   dimColor={n === 0}
                   onPress={() => update($, view, x => ({ ...normalize(DEFAULT_VIEW, x), gateOpen: normalize(DEFAULT_VIEW, x).gateOpen === b ? null : b }))}
                 />
@@ -758,7 +769,7 @@ export const register: Register = (on, options) => {
                 .map(c => (
                   <Text wrap="truncate">
                     <Text color={verdictColor(c)}>{c.verdict === 'deny' ? '✗ ' : '■ '}</Text>
-                    <Text color={C.dim}>{`${(c.verdict === 'rule' ? 'allowed' : c.verdict === 'cleared' ? decider : c.verdict === 'ask' ? 'pending' : 'denied').padEnd(10)} `}</Text>
+                    <Text color={C.dim}>{`${(c.verdict === 'rule' ? tx('allowed') : c.verdict === 'cleared' ? decider : c.verdict === 'ask' ? tx('pending') : tx('denied')).padEnd(10)} `}</Text>
                     <Text dimColor={c.inSubagent}>{shorten(c.detail, Math.max(10, w - 18))}</Text>
                   </Text>
                 ))
@@ -777,17 +788,20 @@ export const register: Register = (on, options) => {
       // Cards need 20 columns each; when the pane can't hold the limit, lanes take over.
       const fit = Math.max(1, Math.min(cfg.maxCards, Math.floor((w + 1) / 21)))
       const useLanes = cards.length > fit
+      const title = tx('agents · {running} running · {total} total', { running: running.length, total: cards.length })
+      const hint = tx('1-{n} expand', { n: Math.min(cards.length, useLanes ? 6 : fit) })
       const header = (
         <Box justifyContent="space-between" width={w}>
-          <Text bold>{`agents · ${running.length} running · ${cards.length} total`}</Text>
-          {cards.length > 0 ? <Text color={C.faint}>1-{Math.min(cards.length, useLanes ? 6 : fit)} expand</Text> : null}
+          <Text bold>{title}</Text>
+          {/* The hint gives way when it can't share the row: Turkish runs longer. */}
+          {cards.length > 0 && title.length + 1 + hint.length <= w ? <Text color={C.faint}>{hint}</Text> : null}
         </Box>
       )
       if (cards.length === 0) {
         return (
           <Box flexDirection="column" width={w}>
             {header}
-            <Text color={C.faint}>no subagents yet</Text>
+            <Text color={C.faint}>{tx('no subagents yet')}</Text>
           </Box>
         )
       }
@@ -798,7 +812,7 @@ export const register: Register = (on, options) => {
         return (
           <Box flexDirection="column" width={w}>
             {header}
-            {cards.length > shown.length ? <Text color={C.faint}>{`+${cards.length - shown.length} earlier`}</Text> : null}
+            {cards.length > shown.length ? <Text color={C.faint}>{tx('+{n} earlier', { n: cards.length - shown.length })}</Text> : null}
             {shown.map((c, i) => {
               const gm = geo[i]
               const isViewed = viewed === c.id
@@ -850,11 +864,11 @@ export const register: Register = (on, options) => {
                     {sameModel ? c.type : `${c.type} · ${prettyModel(c.model)}`}
                   </Text>
                   <Text dimColor wrap="truncate">
-                    {c.steps > 0 ? `ctx ${kTokens(c.ctx)} · out ${kTokens(c.out)} · ${c.steps} st` : 'starting…'}
+                    {c.steps > 0 ? tx('ctx {ctx} · out {out} · {n} st', { ctx: kTokens(c.ctx), out: kTokens(c.out), n: c.steps }) : tx('starting…')}
                   </Text>
                   <Box>
                     <Text color={c.lastStop === 'max_tokens' ? C.warn : statusColor(c)}>
-                      {cardW >= 26 ? `${glyph(c)} ${c.lastStop === 'max_tokens' ? 'max_tokens' : c.status} ` : `${glyph(c)} `}
+                      {cardW >= 26 ? `${glyph(c)} ${c.lastStop === 'max_tokens' ? 'max_tokens' : isKey(c.status) ? tx(c.status) : c.status} ` : `${glyph(c)} `}
                     </Text>
                     <Box flexShrink={0}>{clock(`card-clock-${c.id}`, c.spawnedAt, c.endedAt, C.dim)}</Box>
                   </Box>
@@ -874,8 +888,8 @@ export const register: Register = (on, options) => {
           <Text bold wrap="wrap">
             {expandedCard.description || expandedCard.type}
           </Text>
-          <Text dimColor wrap="truncate">{`${expandedCard.type} · ${prettyModel(expandedCard.model)} · ${expandedCard.status} · ${expandedCard.steps} steps`}</Text>
-          {expandedCard.tools.length === 0 ? <Text color={C.faint}>no tool calls yet</Text> : null}
+          <Text dimColor wrap="truncate">{tx('{type} · {model} · {status} · {n} steps', { type: expandedCard.type, model: prettyModel(expandedCard.model), status: isKey(expandedCard.status) ? tx(expandedCard.status) : expandedCard.status, n: expandedCard.steps })}</Text>
+          {expandedCard.tools.length === 0 ? <Text color={C.faint}>{tx('no tool calls yet')}</Text> : null}
           {expandedCard.tools.map(n => (
             <Text color={n.isError ? C.warn : C.text} wrap="truncate">
               {`${n.isError ? '✗' : '·'} ${n.text}`}
@@ -893,11 +907,13 @@ export const register: Register = (on, options) => {
     const loopsPanel = (w: number) => {
       if (lp.length === 0) return null
       const active = lp.filter(l => isLoopActive(l, now)).length
-      const dots = lp.slice(-Math.max(4, w - 38))
+      const label = tx('other loops ')
+      const counts = tx('{n} seen · {active} active  ', { n: lp.length, active })
+      const dots = lp.slice(-loopDots(w, label.length + counts.length))
       return (
         <Box width={w}>
-          <Text bold>other loops </Text>
-          <Text dimColor>{`${lp.length} seen · ${active} active  `}</Text>
+          <Text bold>{label}</Text>
+          <Text dimColor>{counts}</Text>
           {dots.map(l => (
             <Text color={isLoopActive(l, now) ? C.agent : l.isDone ? C.dim : C.faint}>{isLoopActive(l, now) ? '●' : l.isDone ? '✓' : '○'}</Text>
           ))}
@@ -912,20 +928,20 @@ export const register: Register = (on, options) => {
         <Box flexDirection="column" borderStyle="round" borderColor={C.main} borderDimColor={!m.isRunning && !isReview} paddingX={1} width={w}>
           {m.isRunning ? (
             <Box>
-              <Text color={C.main} wrap="truncate">{`◐ back to ${modelName.toLowerCase()} · turn `}</Text>
+              <Text color={C.main} wrap="truncate">{tx('◐ back to {model} · turn ', { model: modelName.toLowerCase() })}</Text>
               <Box flexShrink={0}>{clock('turn-clock', t.startedAt, null, C.main)}</Box>
-              {w >= 60 ? <Text dimColor wrap="truncate">{` · ${plural(t.edits, 'edit')} · ${plural(t.errors, 'error')}`}</Text> : null}
+              {w >= 60 ? <Text dimColor wrap="truncate">{tx(' · {edits} · {errors}', { edits: tx(t.edits === 1 ? '{n} edit' : '{n} edits', { n: t.edits }), errors: tx(t.errors === 1 ? '{n} error' : '{n} errors', { n: t.errors }) })}</Text> : null}
             </Box>
           ) : r ? (
             <Text wrap="truncate">
               <Text color={r.reason === 'answer' ? C.gate : C.warn}>{r.reason === 'answer' ? '✓ ' : '✗ '}</Text>
-              <Text>{`last turn ${fmtDuration(r.durationMs)} · ${plural(r.agents, 'agent')} · ${plural(r.edits, 'edit')} · ${plural(r.errors, 'error')}`}</Text>
+              <Text>{tx('last turn {d} · {agents} · {edits} · {errors}', { d: fmtDuration(r.durationMs), agents: tx(r.agents === 1 ? '{n} agent' : '{n} agents', { n: r.agents }), edits: tx(r.edits === 1 ? '{n} edit' : '{n} edits', { n: r.edits }), errors: tx(r.errors === 1 ? '{n} error' : '{n} errors', { n: r.errors }) })}</Text>
               {r.costDelta !== null ? <Text color={C.main}>{` · +${fmtUsd(r.costDelta)}`}</Text> : null}
             </Text>
           ) : (
-            <Text color={C.faint}>no turn finished yet</Text>
+            <Text color={C.faint}>{tx('no turn finished yet')}</Text>
           )}
-          {isReview ? <Text color={C.arch}>{`${cfg.architectLabel.toLowerCase()} reviewing before done (inferred)`}</Text> : null}
+          {isReview ? <Text color={C.arch}>{tx('{label} reviewing before done (inferred)', { label: lower(cfg.architectLabel) })}</Text> : null}
         </Box>
       )
     }
@@ -942,8 +958,8 @@ export const register: Register = (on, options) => {
       l.kind === 'error' ? C.warn : l.kind === 'consult' ? C.arch : l.who === 'main' ? C.main : l.who === 'gate' ? C.gate : l.who === 'you' ? C.text : C.agent
     const logPanel = (w: number) => (
       <Box flexDirection="column" borderStyle="round" borderColor={C.faint} paddingX={1} width={w}>
-        <Text dimColor>{viewed ? 'session log · this agent' : 'session log'}</Text>
-        {shownLines.length === 0 ? <Text color={C.faint}>nothing yet</Text> : null}
+        <Text dimColor>{viewed ? tx('session log · this agent') : tx('session log')}</Text>
+        {shownLines.length === 0 ? <Text color={C.faint}>{tx('nothing yet')}</Text> : null}
         {shownLines.map(l => (
           <Box>
             <Box width={9} flexShrink={0}>
@@ -951,7 +967,7 @@ export const register: Register = (on, options) => {
             </Box>
             <Box width={13} flexShrink={0}>
               <Text color={colorOf(l)} bold wrap="truncate">
-                {l.who}
+                {l.who === 'main' || l.who === 'gate' || l.who === 'you' || l.who === 'agent' || l.who === 'engine' ? tx(l.who) : l.who}
               </Text>
             </Box>
             <Text color={l.kind === 'error' ? C.warn : C.text} wrap="truncate">
@@ -964,7 +980,7 @@ export const register: Register = (on, options) => {
 
     const draw = (p: Panel, w: number) =>
       isRoomPanel(p)
-        ? drawRoom(p, w, { els, C, palette: cfg.palette, room, isRuleOn: cfg.delegationRule, clock })
+        ? drawRoom(p, w, { els, C, palette: cfg.palette, room, isRuleOn: cfg.delegationRule, clock, t: tx })
         : p === 'main'
         ? mainPanel(w)
         : p === 'architect'
@@ -1022,7 +1038,7 @@ export const register: Register = (on, options) => {
             return (
               <Svg
                 source={`<svg xmlns="http://www.w3.org/2000/svg" width="${pxW}" height="${svgH}" viewBox="0 0 ${pxW} ${svgH}">${rects}</svg>`}
-                alt={`${cards.length} agents on a time axis`}
+                alt={tx('{n} agents on a time axis', { n: cards.length })}
                 width={pxW}
                 height={svgH}
               />
@@ -1034,8 +1050,13 @@ export const register: Register = (on, options) => {
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
     if (isMini) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, 3)
-      const counts = ` ${s.rule} allowed · ${s.cleared} ${decider}${s.ask > 0 ? ` · ${s.ask} pending` : ''} · ${s.deny} denied`
-      const strip = g.recent.slice(-Math.max(4, W - cfg.gateLabel.length - 1 - counts.length))
+      const wordy = tx(' {allowed} allowed · {cleared} {decider}{pending} · {denied} denied', { allowed: s.rule, cleared: s.cleared, decider, pending: s.ask > 0 ? tx(' · {n} pending', { n: s.ask }) : '', denied: s.deny })
+      // When the words leave less than Flightdeck's 4 cells of strip, the counts turn to marks
+      // (✓7 ?1 ✗2), so the denied count always shows: the Turkish words run long at 40 columns.
+      const room = W - cfg.gateLabel.length - 1
+      const isTight = wordy.length + 4 > room
+      const counts = isTight ? tx(' ✓{ok}{pending} ✗{denied}', { ok: s.rule + s.cleared, pending: s.ask > 0 ? ` ?${s.ask}` : '', denied: s.deny }) : wordy
+      const strip = g.recent.slice(-Math.max(isTight ? 1 : 4, room - counts.length))
       const mg = u.pct !== null ? gauge(u.pct, 6) : null
       return (
         <Box flexDirection="column" width={W}>
@@ -1043,18 +1064,18 @@ export const register: Register = (on, options) => {
             <Text color={C.main} bold>
               {modelName}
             </Text>
-            <Text color={m.isRunning ? C.main : C.dim}>{m.isRunning ? ' ● working' : ' ○ idle'}</Text>
-            {mg ? <Text dimColor> · ctx </Text> : null}
+            <Text color={m.isRunning ? C.main : C.dim}>{m.isRunning ? tx(' ● working') : tx(' ○ idle')}</Text>
+            {mg ? <Text dimColor>{tx(' · ctx ')}</Text> : null}
             {mg ? <Text color={(u.pct ?? 0) >= 80 ? C.warn : C.main}>{mg.on}</Text> : null}
             {mg ? <Text color={C.faint}>{mg.off}</Text> : null}
             {mg ? <Text>{` ${Math.round(u.pct ?? 0)}%`}</Text> : null}
             {u.compactions > 0 ? <Text color={C.amber}>{` ⟲${u.compactions}`}</Text> : null}
             {u.costUsd !== null ? <Text dimColor>{` · ${fmtUsd(u.costUsd)}`}</Text> : null}
-            {showArchitect ? <Text color={C.arch}>{` · ${cfg.architectLabel.toLowerCase()} ${advising ? 'advising' : a.consults.length}`}</Text> : null}
+            {showArchitect ? <Text color={C.arch}>{` · ${lower(cfg.architectLabel)} ${advising ? tx('advising') : a.consults.length}`}</Text> : null}
           </Text>
           {strip.length > 0 ? (
             <Box>
-              <Text dimColor>{`${cfg.gateLabel.toLowerCase()} `}</Text>
+              <Text dimColor>{`${lower(cfg.gateLabel)} `}</Text>
               {strip.map(c => (
                 <Text color={verdictColor(c)} dimColor={c.inSubagent}>
                   {c.verdict === 'deny' ? '✗' : '■'}
@@ -1072,17 +1093,17 @@ export const register: Register = (on, options) => {
               <Box width={Math.max(10, W - 30)}>
                 <Text wrap="truncate">{cardTitle(c)}</Text>
               </Box>
-              <Text dimColor>{c.steps > 0 ? ` ctx ${kTokens(c.ctx)} ` : ' '}</Text>
+              <Text dimColor>{c.steps > 0 ? tx(' ctx {n} ', { n: kTokens(c.ctx) }) : ' '}</Text>
               {clock(`mini-clock-${c.id}`, c.spawnedAt, c.endedAt, C.dim)}
             </Box>
           ))}
           {cards.length > live.length ? (
-            <Text color={C.faint} wrap="truncate">{`+${cards.length - live.length} more agents · /liveroom layout compact for all`}</Text>
+            <Text color={C.faint} wrap="truncate">{tx('+{n} more agents · /liveroom layout compact for all', { n: cards.length - live.length })}</Text>
           ) : null}
-          {lp.length > 0 ? <Text dimColor>{`other loops ${lp.length} · ${lp.filter(l => isLoopActive(l, now)).length} active`}</Text> : null}
+          {lp.length > 0 ? <Text dimColor>{tx('other loops {n} · {active} active', { n: lp.length, active: lp.filter(l => isLoopActive(l, now)).length })}</Text> : null}
           {!m.isRunning && r ? (
             <Text dimColor wrap="truncate">
-              {`last turn ${fmtDuration(r.durationMs)} · ${plural(r.agents, 'agent')} · ${plural(r.edits, 'edit')} · ${plural(r.errors, 'error')}${r.costDelta !== null ? ` · +${fmtUsd(r.costDelta)}` : ''}`}
+              {`${tx('last turn {d} · {agents} · {edits} · {errors}', { d: fmtDuration(r.durationMs), agents: tx(r.agents === 1 ? '{n} agent' : '{n} agents', { n: r.agents }), edits: tx(r.edits === 1 ? '{n} edit' : '{n} edits', { n: r.edits }), errors: tx(r.errors === 1 ? '{n} error' : '{n} errors', { n: r.errors }) })}${r.costDelta !== null ? ` · +${fmtUsd(r.costDelta)}` : ''}`}
             </Text>
           ) : null}
         </Box>
@@ -1091,10 +1112,10 @@ export const register: Register = (on, options) => {
 
     const legend = fitLegend(
       [
-        { label: 'main', color: C.main },
-        { label: 'agents', color: C.agent },
-        { label: cfg.gateLabel.toLowerCase(), color: C.gate },
-        ...(showArchitect ? [{ label: cfg.architectLabel.toLowerCase(), color: C.arch }] : []),
+        { label: tx('main'), color: C.main },
+        { label: tx('agents'), color: C.agent },
+        { label: lower(cfg.gateLabel), color: C.gate },
+        ...(showArchitect ? [{ label: lower(cfg.architectLabel), color: C.arch }] : []),
         ...(panels.includes('codex') ? [{ label: 'codex', color: ROOM_COLORS[cfg.palette].codex }] : []),
       ],
       W,
@@ -1119,10 +1140,10 @@ export const register: Register = (on, options) => {
             <Text>LIVEROOM</Text>
             <Text color={C.dim}> · </Text>
             <Text color={C.main}>{modelName.toUpperCase()}</Text>
-            <Text>{m.isRunning ? ' WORKS' : ' IDLE'}</Text>
+            <Text>{m.isRunning ? tx(' WORKS') : tx(' IDLE')}</Text>
             {showArchitect ? <Text color={C.dim}> · </Text> : null}
             {showArchitect ? <Text color={C.arch}>{cfg.architectLabel}</Text> : null}
-            {showArchitect ? <Text>{advising ? ' ADVISING' : ' ON CALL'}</Text> : null}
+            {showArchitect ? <Text>{advising ? tx(' ADVISING') : tx(' ON CALL')}</Text> : null}
           </Text>
         </Box>
         <Box justifyContent="center" columnGap={2}>
@@ -1220,6 +1241,43 @@ const steps = atom({ plugin: 'liveroom', key: 'steps' } as const, {})
 const skills = atom({ plugin: 'liveroom', key: 'skills' } as const, {})
 const plugins = atom({ plugin: 'liveroom', key: 'plugins' } as const, {})
 const rules = atom({ plugin: 'liveroom', key: 'rules' } as const, {})
+/**
+ * Text in the pane's language. The language changes only when a session starts (a reload starts
+ * one too), so it lives here rather than in state: no hook pays a state read to translate.
+ */
+let tx: T = makeT('en')
+
+/** Sets the pane's language: the option's, or under `auto` Claude Code's own `language` setting. */
+async function noteLanguage($: EngineInterface, option: LanguageOption) {
+  const setting = option === 'auto' ? await $.settings.read().then(s => s.language, () => undefined) : undefined
+  tx = makeT(langOf(option, setting))
+}
+
+/**
+ * A tagged turn opener's log line in the pane's language: a known tag translated, an unknown one as
+ * written, the sender's id unchanged. Null for the user's own words, which the log keeps as typed.
+ */
+function engineLine(text: string): string | null {
+  const o = openerOf(text)
+  if (!o) return null
+  const label = isKey(o.label) ? tx(o.label) : o.label
+  return shorten(o.from ? tx('{label} from {from}', { label, from: o.from }) : label, 70)
+}
+
+/**
+ * Lower case for a label: one written in Turkish, known by a letter only Turkish has (İ ı Ş ş Ğ ğ),
+ * the Turkish way, so "MİMAR" reads "mimar", not "mi̇mar"; any other the plain way, so "ARCHITECT"
+ * never reads "archıtect" and "REVISIÓN" never "revısıón".
+ */
+const lower = (s: string) => (/[İıŞşĞğ]/.test(s) ? s.toLocaleLowerCase('tr') : s.toLowerCase())
+
+/** The architect and gate panels take the pane's language for their names, unless the user named them. */
+function localizeLabels(cfg: Config, options: Readonly<Record<string, unknown>>) {
+  // The engine passes the manifest's defaults as values, so a label still at its default is unnamed.
+  const isNamed = (k: string, fallback: string) => typeof options[k] === 'string' && options[k] !== '' && options[k] !== fallback
+  if (!isNamed('architectLabel', 'ARCHITECT')) cfg.architectLabel = tx('ARCHITECT')
+  if (!isNamed('gateLabel', 'GATE')) cfg.gateLabel = tx('GATE')
+}
 
 /** Everything the room's panels draw from, read leniently. */
 async function readRoom($: EngineInterface): Promise<RoomView> {
@@ -1293,5 +1351,6 @@ async function noteSpawn(
   // A nested spawn's parent model is the calling subagent's, not the main loop's.
   const note = e.parentAgentId ? "no model in the call, inherits its parent's model" : 'no model in the call, runs on the main model'
   await update($, rules, r => noteRule(r, id, note))
-  $.ui.toast(e.parentAgentId ? `⚠ ${e.subagentType}: no model in the call, inherits ${started.model} from its parent` : `⚠ ${e.subagentType}: no model in the call, runs on ${started.model}`)
+  const vars = { type: e.subagentType, model: started.model ?? '' }
+  $.ui.toast(e.parentAgentId ? tx('⚠ {type}: no model in the call, inherits {model} from its parent', vars) : tx('⚠ {type}: no model in the call, runs on {model}', vars))
 }
