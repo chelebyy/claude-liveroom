@@ -281,7 +281,38 @@ export function endRun(runs: readonly CodexRun[], id: string, status: 'done' | '
   return runs.map(r => (r.id === id && (r.status === 'running' || r.status === 'background') ? { ...r, status, endedAt: at } : r))
 }
 
-/** A run whose call returned while its work goes on unseen: a background shell. */
+/** A background task's end, as its notification names it: the call that started it, and how it ended. */
+export type TaskNotice = { toolUseId: string; status: 'done' | 'failed' }
+
+const NOTICE_STATUS: Record<string, TaskNotice['status']> = { completed: 'done', failed: 'failed', killed: 'failed' }
+
+/**
+ * The task ends a `task-notification` row reports, from each notification's `<tool-use-id>` and
+ * `<status>`: `completed` is done, `failed` or `killed` is failed. Any other status is not an end.
+ */
+export function taskNotices(text: string): TaskNotice[] {
+  return text
+    .split('<task-notification>')
+    .slice(1)
+    .flatMap(block => {
+      const toolUseId = block.match(/<tool-use-id>([^<]+)<\/tool-use-id>/)?.[1]?.trim()
+      const status = NOTICE_STATUS[block.match(/<status>([^<]+)<\/status>/)?.[1]?.trim() ?? '']
+      return toolUseId && status ? [{ toolUseId, status }] : []
+    })
+}
+
+/**
+ * Ends the runs the notices report on. Only a run still in flight: a codex sent off with `&` outlives
+ * the shell that launched it, so that shell's end is not the run's.
+ */
+export function endNoticed(runs: readonly CodexRun[], notices: readonly TaskNotice[], at: number): CodexRun[] {
+  return notices.reduce<CodexRun[]>(
+    (list, n) => (list.some(r => r.id === n.toolUseId && r.status === 'running') ? endRun(list, n.toolUseId, n.status, at) : list),
+    [...runs],
+  )
+}
+
+/** A run whose call returned while its work goes on unseen: a codex the shell line sent off with `&`. */
 export function backgroundRun(runs: readonly CodexRun[], id: string): CodexRun[] {
   return runs.map(r => (r.id === id && r.status === 'running' ? { ...r, status: 'background' as const } : r))
 }

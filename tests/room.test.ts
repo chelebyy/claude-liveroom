@@ -4,6 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import {
   backgroundRun,
   cliRun,
+  endNoticed,
   codexEffort,
   endRun,
   flag,
@@ -15,6 +16,7 @@ import {
   pushRun,
   rescueRun,
   stepKey,
+  taskNotices,
   top,
 } from '../hooks/room/core'
 
@@ -113,6 +115,20 @@ test('a run ends once, and the list keeps the newest', () => {
   expect(busy.length).toBe(31)
   expect(busy.some(r => r.id === 'live')).toBe(true)
   expect(busy.some(r => r.id === 'bg')).toBe(false)
+})
+
+test('task notifications are read for the call they end and how it ended', () => {
+  const notice = (id: string, status: string) =>
+    `<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>${status}</status>\n<summary>x</summary>\n</task-notification>`
+  expect(taskNotices(notice('t1', 'completed'))).toEqual([{ toolUseId: 't1', status: 'done' }])
+  expect(taskNotices(`${notice('t2', 'killed')}\n${notice('t3', 'failed')}`).map(n => n.status)).toEqual(['failed', 'failed'])
+  expect(taskNotices(notice('t4', 'running'))).toEqual([]) // not an end
+  expect(taskNotices('no notification here')).toEqual([])
+  // Only a run in flight ends: a codex sent off with `&` outlives the shell that launched it.
+  let runs = pushRun([], cliRun('t1', parseCodexCli('codex exec x')!, 1))
+  runs = backgroundRun(pushRun(runs, cliRun('t5', parseCodexCli('codex exec x &')!, 2)), 't5')
+  runs = endNoticed(runs, [...taskNotices(notice('t1', 'completed')), ...taskNotices(notice('t5', 'completed'))], 9)
+  expect(runs.map(r => r.status)).toEqual(['done', 'background'])
 })
 
 test('plugins are read from names and MCP tools; tallies rank and draw', () => {
@@ -243,24 +259,43 @@ test('a codex-rescue run lives as long as its subagent, even when the call retur
   await ui.unmount()
 })
 
-test('a background codex shell shows ◌ bg instead of a finished ✓', async ($, on) => {
+test('a background codex shell runs until its task notification ends it', async ($, on) => {
   engine(on)
-  on('tool.call', () => ({ result: {}, text: 'started in background' }))
+  on('tool.call', () => ({ result: {}, text: 'Command running in background with ID: b1.' }))
+  const notify = (id: string, status: string) =>
+    $.session.append({
+      message: {
+        type: 'user',
+        role: 'user',
+        content: [{ type: 'text', text: `<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>${status}</status>\n</task-notification>` }],
+      },
+      door: 'prompt',
+      origin: { kind: 'task-notification' },
+      uuid: `row-${id}`,
+    } as never)
   await $.tool.call({ tool: 'Bash', command: 'codex exec -m gpt-6-luna -c model_reasoning_effort=low x', run_in_background: true, tool_use_id: 'bg1' } as never)
-  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
-  expect(await ui.find({ text: /^◌ $/ })).toBeDefined()
-  expect(await ui.find({ text: /^bg$/ })).toBeDefined()
-  expect(await ui.find({ text: /^✓ $/ })).toBeUndefined()
+  await $.tool.call({ tool: 'Bash', command: 'codex exec -m gpt-6-luna -c model_reasoning_effort=low y', run_in_background: true, tool_use_id: 'bg2' } as never)
+  let ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /2 running · 2 total/ })).toBeDefined()
+  expect(await ui.find({ text: /^✓ $/ })).toBeUndefined() // the call returned, the work goes on
+  await ui.unmount()
+  await notify('bg1', 'completed')
+  await notify('bg2', 'killed')
+  ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /0 running · 2 total/ })).toBeDefined()
+  expect(await ui.find({ text: /^✓ $/ })).toBeDefined()
+  expect(await ui.find({ text: /^✗ $/ })).toBeDefined()
   await ui.unmount()
 })
 
-test('a codex the shell line sends off with & shows ◌ bg too', async ($, on) => {
+test('a codex the shell line sends off with & shows ◌ bg, apart from the running count', async ($, on) => {
   engine(on)
   on('tool.call', () => ({ result: {}, text: '' }))
   await $.tool.call({ tool: 'Bash', command: 'nohup codex exec -m gpt-6-luna -c model_reasoning_effort=low x >codex.log 2>&1 &', tool_use_id: 'nh1' } as never)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^◌ $/ })).toBeDefined()
   expect(await ui.find({ text: /^bg$/ })).toBeDefined()
-  expect(await ui.find({ text: /1 running · 1 total/ })).toBeDefined()
+  expect(await ui.find({ text: /0 running · 1 bg · 1 total/ })).toBeDefined() // its end is never seen, so it is not counted as running
   await ui.unmount()
 })
 

@@ -92,7 +92,7 @@ export type Roster = { architectTypes: string[] }
 
 // ---- Liveroom's additions (hooks/room)
 
-/** `background`: the call returned but its work goes on where the pane can't see its end. */
+/** `background`: a codex the shell line sent off with `&`; it runs on, but no event says when it ends. */
 export type RunStatus = 'running' | 'background' | 'done' | 'failed'
 
 /** One piece of work handed to Codex: through the codex-rescue subagent or the codex CLI. */

@@ -91,14 +91,16 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
   }
 
   if (p === 'codex') {
-    const running = room.codex.filter(r => r.status === 'running' || r.status === 'background').length
+    // A run sent off with `&` is not counted as running: no event says when it ends.
+    const running = room.codex.filter(r => r.status === 'running').length
+    const unseen = room.codex.filter(r => r.status === 'background').length
     const shown = room.codex.slice(-6)
     const warned = x.isRuleOn ? room.codex.filter(r => r.ruleNote).length : 0
     const isLive = (r: CodexRun) => r.status === 'running' || r.status === 'background'
     return frame(
       RC.codex,
       'CODEX · hand-offs',
-      `${running} running · ${room.codex.length} total`,
+      `${running} running${unseen > 0 ? ` · ${unseen} bg` : ''} · ${room.codex.length} total`,
       [
         ...shown.map(r => (
           <Box justifyContent="space-between">

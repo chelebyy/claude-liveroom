@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { ApiContentBlock, EngineInterface, Register } from 'claude-code'
 
 import type { AgentCard, Architect, Bucket, Check, Gate, Layout, LogLine, Loop, Main, Roster, Turn, Usage, View } from '../types'
 import {
@@ -58,7 +58,7 @@ import {
 import type { Config, Panel } from './core'
 import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel } from './room/panels'
 import type { CodexRun } from './room/core'
-import { CODEX_RESCUE, backgroundRun, bump, cliRun, endRun, linkRun, parseCodexCli, pluginOfName, pluginOfTool, pushRun, rescueRun, stepKey } from './room/core'
+import { CODEX_RESCUE, backgroundRun, bump, cliRun, endNoticed, endRun, linkRun, parseCodexCli, pluginOfName, pluginOfTool, pushRun, rescueRun, stepKey, taskNotices } from './room/core'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
 
@@ -431,6 +431,7 @@ export const register: Register = (on, options) => {
 
   // A server-side review tool never reaches tool.call: it shows only in the assistant's rows.
   on('session.append', async ($, e, next) => {
+    if (e.origin.kind === 'task-notification') await endNotifiedCodex($, e.message.content)
     if (!e.agentId && e.message.type === 'assistant') {
       const a = await getArchitect($)
       // Consults this row opened: their result may be in the same row, after the stale read above.
@@ -1159,11 +1160,13 @@ export const register: Register = (on, options) => {
     await update($, codex, runs => pushRun(runs, run))
     return next(e).then(
       async ran => {
-        // A background shell, or a codex the line sends off with `&`, returns as it starts; its end
-        // is not an event the pane sees.
+        // A background shell returns as it starts, and its task notification ends the run later
+        // (endNotifiedCodex). A codex the line sends off with `&` outlives its shell: no event says
+        // when it ends, so it shows bg.
         const isFailed = ran.deny !== undefined || ran.isError === true
-        if ((e.run_in_background === true || cli.isDetached) && !isFailed) await update($, codex, runs => backgroundRun(runs, run.id))
-        else await endCodex($, run, ran)
+        if (isFailed) await endCodex($, run, ran)
+        else if (cli.isDetached) await update($, codex, runs => backgroundRun(runs, run.id))
+        else if (e.run_in_background !== true) await endCodex($, run, ran)
         return ran
       },
       async err => {
@@ -1226,6 +1229,14 @@ async function countPluginTool($: EngineInterface, tool: string) {
 }
 
 /** A codex-rescue run ends with its subagent: done on an answer, failed otherwise. */
+/** A background task's notification ends the Codex run its call started, done or failed as it says. */
+async function endNotifiedCodex($: EngineInterface, content: readonly ApiContentBlock[]) {
+  const notices = taskNotices(content.map(b => (b.type === 'text' ? b.text : '')).join('\n'))
+  if (notices.length === 0) return
+  const at = await $.clock.now()
+  await update($, codex, runs => endNoticed(runs, notices, at))
+}
+
 async function endCodexAgent($: EngineInterface, agentId: string, reason: string) {
   const runs = await read($, codex)
   const run = runs.find(r => r.agentId === agentId && (r.status === 'running' || r.status === 'background'))
