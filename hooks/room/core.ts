@@ -113,8 +113,46 @@ const CODEX_VALUE_OPTS = new Set([
   '-o', '--output-last-message', '--output-schema', '--color', '--local-provider', '--base', '--commit', '--title',
 ])
 
-/** Words that run the command after them: `env`, `nohup`, `timeout 900` and the like. */
-const WRAPPERS = new Set(['env', 'nohup', 'time', 'sudo', 'command', 'exec', 'npx'])
+/**
+ * Words that run the command after them, each with its options that take a value: `env -u X`,
+ * `sudo -u bob`, `timeout -s KILL 900` (whose duration comes after its options) and the like.
+ */
+const WRAPPERS = new Map<string, readonly string[]>([
+  ['env', ['-u', '--unset', '-C', '--chdir', '-S', '--split-string']],
+  ['nohup', []],
+  ['time', ['-f', '--format', '-o', '--output']],
+  ['sudo', ['-u', '--user', '-g', '--group', '-C', '--close-from', '-D', '--chdir', '-p', '--prompt', '-r', '--role', '-t', '--type', '-U', '--other-user', '-T', '--command-timeout']],
+  ['command', []],
+  ['exec', ['-a']],
+  ['npx', ['-p', '--package', '-c', '--call']],
+  ['nice', ['-n', '--adjustment']],
+  ['setsid', []],
+  ['timeout', ['-s', '--signal', '-k', '--kill-after']],
+])
+
+type Word = { word: string; isSep: boolean }
+
+/** Where the command that starts at `i` names its program: past `VAR=value` words and wrappers. */
+function commandAt(words: readonly Word[], i: number): number {
+  let j = i
+  while (j < words.length && !words[j]!.isSep) {
+    const w = words[j]!.word
+    if (/^\w+=/.test(w)) {
+      j++
+      continue
+    }
+    const valueOpts = WRAPPERS.get(w)
+    if (!valueOpts) break
+    j++
+    while (j < words.length && !words[j]!.isSep && words[j]!.word.startsWith('-') && words[j]!.word.length > 1) {
+      const opt = words[j++]!.word
+      if (opt === '--') break
+      if (valueOpts.includes(opt)) j++
+    }
+    if (w === 'timeout') j++ // the duration
+  }
+  return j
+}
 
 const unquote = (v: string) => v.replace(/^(["'])(.*)\1$/, '$2')
 
@@ -130,13 +168,27 @@ export type CodexCli = {
   effort: string | null
   /** The line itself sends the call to the background with `&`, so the shell returns as it starts. */
   isDetached: boolean
+  /** Another command runs after it on the line, so the shell's exit status is not its own. */
+  isExitShared: boolean
+}
+
+/** Whether a later command on the line is `wait`, which holds the shell until its jobs end. */
+function waitsLater(words: readonly Word[], k: number): boolean {
+  for (let i = k; i < words.length; i++) {
+    if (words[i]!.isSep) continue
+    const j = commandAt(words, i)
+    if (words[j]?.word === 'wait') return true
+    while (i < words.length && !words[i]!.isSep) i++
+  }
+  return false
 }
 
 /**
- * Whether the command list that goes on at `k` ends in a lone `&`. Pipes, `&&` and `||` keep the
- * list going, as `codex exec x | tee log &` does; `;` or a newline ends it in the foreground.
+ * Whether the command list that goes on at `k` ends in a lone `&` with no `wait` after it. Pipes,
+ * `&&` and `||` keep the list going, as `codex exec x | tee log &` does; `;` or a newline ends it in
+ * the foreground.
  */
-function endsDetached(words: readonly { word: string; isSep: boolean }[], k: number): boolean {
+function endsDetached(words: readonly Word[], k: number): boolean {
   for (; k < words.length; k++) {
     const w = words[k]!
     if (!w.isSep) continue
@@ -146,27 +198,22 @@ function endsDetached(words: readonly { word: string; isSep: boolean }[], k: num
       k++ // `&&`, `||` or `|&`
       continue
     }
-    if (w.word === '&') return true
+    if (w.word === '&') return !waitsLater(words, k + 1)
   }
   return false
 }
 
 /**
- * A codex exec or review call in a shell line, read from its own option words: `-m` / `--model` /
- * `-c model=…` and `-c model_reasoning_effort=…`, before or after the subcommand. The prompt and
- * any other command on the line are never read as options. Null when the line calls no such codex.
+ * Every codex exec or review call in a shell line, in order, read from its own option words:
+ * `-m` / `--model` / `-c model=…` and `-c model_reasoning_effort=…`, before or after the
+ * subcommand. The prompt and any other command on the line are never read as options.
  */
-export function parseCodexCli(line: string): CodexCli | null {
+export function parseCodexCalls(line: string): CodexCli[] {
   const words = shellWords(line)
+  const calls: CodexCli[] = []
   for (let i = 0; i < words.length; i++) {
     // Only a word in command position is a command: the start, after a separator, or after a wrapper.
-    let j = i
-    while (j < words.length && !words[j]!.isSep && (/^\w+=/.test(words[j]!.word) || WRAPPERS.has(words[j]!.word))) j++
-    if (j < words.length && words[j]!.word === 'timeout') {
-      j++
-      while (j < words.length && words[j]!.word.startsWith('-')) j++
-      j++ // the duration
-    }
+    const j = commandAt(words, i)
     const head = words[j]
     const isCodex = head && !head.isSep && /(^|\/)codex(\.exe)?$/.test(head.word)
     if (isCodex) {
@@ -200,14 +247,19 @@ export function parseCodexCli(line: string): CodexCli | null {
         if (plainWords === 1) kind = w === 'exec' || w === 'e' ? 'exec' : w === 'review' ? 'review' : null
         else if (plainWords === 2 && kind === 'exec' && w === 'review') kind = 'review'
       }
-      if (kind) return { kind, model, effort, isDetached: endsDetached(words, k) }
+      if (kind) calls.push({ kind, model, effort, isDetached: endsDetached(words, k), isExitShared: words.slice(k).some(w => !w.isSep) })
       i = k
       continue
     }
     // Skip to the next command on the line.
     while (i < words.length && !words[i]!.isSep) i++
   }
-  return null
+  return calls
+}
+
+/** The first codex exec or review call in a shell line; null when it has none. */
+export function parseCodexCli(line: string): CodexCli | null {
+  return parseCodexCalls(line)[0] ?? null
 }
 
 /** A clause that, on its own, makes the whole task read-only. */
@@ -273,22 +325,33 @@ export function cliRun(id: string, cli: CodexCli, at: number): CodexRun {
     endedAt: null,
     ruleNote: cli.kind === 'review' ? null : ruleNote(cli.model, cli.effort, true),
     agentId: null,
+    isExitShared: cli.isExitShared,
   }
 }
 
+/** The id of a shell line's `n`th codex call (from 0): the call's own id first, then `id:2`, `id:3`. */
+export const callRunId = (toolUseId: string, n: number) => (n === 0 ? toolUseId : `${toolUseId}:${n + 1}`)
+
+/** How a run ends once its shell call returns: the line's exit status is its own only when nothing runs after it. */
+export function shellEnd(run: CodexRun, ran: { deny?: string; isError?: boolean } | null): 'done' | 'failed' | 'ended' {
+  if (ran === null || ran.deny !== undefined) return 'failed' // it never ran, or the call broke
+  if (run.isExitShared) return 'ended'
+  return ran.isError === true ? 'failed' : 'done'
+}
+
 /** Ends a run; one that is already over keeps its first ending. */
-export function endRun(runs: readonly CodexRun[], id: string, status: 'done' | 'failed', at: number): CodexRun[] {
+export function endRun(runs: readonly CodexRun[], id: string, status: 'done' | 'failed' | 'ended', at: number): CodexRun[] {
   return runs.map(r => (r.id === id && (r.status === 'running' || r.status === 'background') ? { ...r, status, endedAt: at } : r))
 }
 
 /** A background task's end, as its notification names it: the call that started it, and how it ended. */
-export type TaskNotice = { toolUseId: string; status: 'done' | 'failed' }
+export type TaskNotice = { toolUseId: string; status: 'completed' | 'failed' | 'killed' }
 
-const NOTICE_STATUS: Record<string, TaskNotice['status']> = { completed: 'done', failed: 'failed', killed: 'failed' }
+const NOTICE_STATUSES: readonly string[] = ['completed', 'failed', 'killed']
 
 /**
  * The task ends a `task-notification` row reports, from each notification's `<tool-use-id>` and
- * `<status>`: `completed` is done, `failed` or `killed` is failed. Any other status is not an end.
+ * `<status>`: `completed`, `failed` or `killed`. Any other status is not an end.
  */
 export function taskNotices(text: string): TaskNotice[] {
   return text
@@ -296,20 +359,23 @@ export function taskNotices(text: string): TaskNotice[] {
     .slice(1)
     .flatMap(block => {
       const toolUseId = block.match(/<tool-use-id>([^<]+)<\/tool-use-id>/)?.[1]?.trim()
-      const status = NOTICE_STATUS[block.match(/<status>([^<]+)<\/status>/)?.[1]?.trim() ?? '']
-      return toolUseId && status ? [{ toolUseId, status }] : []
+      const status = block.match(/<status>([^<]+)<\/status>/)?.[1]?.trim() ?? ''
+      return toolUseId && NOTICE_STATUSES.includes(status) ? [{ toolUseId, status: status as TaskNotice['status'] }] : []
     })
 }
 
 /**
- * Ends the runs the notices report on. Only a run still in flight: a codex sent off with `&` outlives
- * the shell that launched it, so that shell's end is not the run's.
+ * Ends the runs the notices report on: every codex call of the shell the notice names. Only a run
+ * still in flight, since a codex sent off with `&` outlives that shell. A killed shell took its
+ * codex with it; otherwise its exit status is the run's own only when nothing ran after it.
  */
 export function endNoticed(runs: readonly CodexRun[], notices: readonly TaskNotice[], at: number): CodexRun[] {
-  return notices.reduce<CodexRun[]>(
-    (list, n) => (list.some(r => r.id === n.toolUseId && r.status === 'running') ? endRun(list, n.toolUseId, n.status, at) : list),
-    [...runs],
-  )
+  return runs.map(r => {
+    const n = notices.find(x => r.id === x.toolUseId || r.id.startsWith(`${x.toolUseId}:`))
+    if (!n || r.status !== 'running') return r
+    const status = n.status === 'killed' ? 'failed' : r.isExitShared ? 'ended' : n.status === 'completed' ? 'done' : 'failed'
+    return { ...r, status, endedAt: at }
+  })
 }
 
 /** A run whose call returned while its work goes on unseen: a codex the shell line sent off with `&`. */
@@ -370,5 +436,5 @@ export function meter(share: number, width: number): string {
 
 /** The glyph a status draws with; running, done and failed match the agent cards. */
 export function runGlyph(status: RunStatus): string {
-  return status === 'running' ? '◐' : status === 'background' ? '◌' : status === 'done' ? '✓' : '✗'
+  return status === 'running' ? '◐' : status === 'background' ? '◌' : status === 'done' ? '✓' : status === 'failed' ? '✗' : '■'
 }

@@ -92,8 +92,11 @@ export type Roster = { architectTypes: string[] }
 
 // ---- Liveroom's additions (hooks/room)
 
-/** `background`: a codex the shell line sent off with `&`; it runs on, but no event says when it ends. */
-export type RunStatus = 'running' | 'background' | 'done' | 'failed'
+/**
+ * `background`: a codex the shell line sent off with `&`; it runs on, but no event says when it ends.
+ * `ended`: it ended, but the shell's exit status was another command's, so there is no verdict.
+ */
+export type RunStatus = 'running' | 'background' | 'done' | 'failed' | 'ended'
 
 /** One piece of work handed to Codex: through the codex-rescue subagent or the codex CLI. */
 export type CodexRun = {
@@ -110,6 +113,8 @@ export type CodexRun = {
   ruleNote: string | null
   /** For a codex-rescue run, the subagent carrying it: its end ends the run. */
   agentId: string | null
+  /** Another command runs after it on the shell line, so the line's exit status is not its own. */
+  isExitShared?: boolean
 }
 
 declare module 'claude-code' {

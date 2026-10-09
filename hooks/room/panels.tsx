@@ -40,9 +40,9 @@ export function isRoomEmpty(p: RoomPanel, room: RoomView): boolean {
   return Object.keys(room.skills).length === 0 && Object.keys(room.plugins).length === 0
 }
 
-/** The cards' colours: running in the agent colour, done green, failed red; a background run dims. */
+/** The cards' colours: running in the agent colour, done green, failed red; a run without a verdict dims. */
 export const statusColorOf = (C: Colors, s: RunStatus) =>
-  s === 'failed' ? C.warn : s === 'done' ? C.gate : s === 'background' ? C.dim : C.agent
+  s === 'failed' ? C.warn : s === 'done' ? C.gate : s === 'background' || s === 'ended' ? C.dim : C.agent
 
 const KIND_LABEL: Record<CodexRun['kind'], string> = { rescue: 'rescue', consult: 'consult', exec: 'exec', review: 'review' }
 

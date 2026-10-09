@@ -10,6 +10,7 @@ import {
   flag,
   isReadOnly,
   meter,
+  parseCodexCalls,
   parseCodexCli,
   pluginOfName,
   pluginOfTool,
@@ -42,14 +43,14 @@ test('flags are read from prompts and command lines in every spelling', () => {
 })
 
 test('codex calls are read from their own option words, not their prompt or neighbours', () => {
-  expect(parseCodexCli('cd repo && codex exec "do it"')).toEqual({ kind: 'exec', model: null, effort: null, isDetached: false })
+  expect(parseCodexCli('cd repo && codex exec "do it"')).toEqual({ kind: 'exec', model: null, effort: null, isDetached: false, isExitShared: false })
   expect(parseCodexCli('codex e "short form"')?.kind).toBe('exec')
   expect(parseCodexCli('codex review --base main')?.kind).toBe('review')
   // Global options before the subcommand.
-  expect(parseCodexCli('codex -m gpt-6-luna -c model_reasoning_effort=high exec "fix it"')).toEqual({ kind: 'exec', model: 'gpt-6-luna', effort: 'high', isDetached: false })
+  expect(parseCodexCli('codex -m gpt-6-luna -c model_reasoning_effort=high exec "fix it"')).toEqual({ kind: 'exec', model: 'gpt-6-luna', effort: 'high', isDetached: false, isExitShared: false })
   // Model as a config override, quoted the TOML way.
-  expect(parseCodexCli(`codex exec -c 'model="gpt-6.1-sol"' -c model_reasoning_effort="xhigh" go`)).toEqual({ kind: 'exec', model: 'gpt-6.1-sol', effort: 'xhigh', isDetached: false })
-  expect(parseCodexCli(`timeout 900 codex review --base main -c model='"gpt-6.1-sol"'`)).toEqual({ kind: 'review', model: 'gpt-6.1-sol', effort: null, isDetached: false })
+  expect(parseCodexCli(`codex exec -c 'model="gpt-6.1-sol"' -c model_reasoning_effort="xhigh" go`)).toEqual({ kind: 'exec', model: 'gpt-6.1-sol', effort: 'xhigh', isDetached: false, isExitShared: false })
+  expect(parseCodexCli(`timeout 900 codex review --base main -c model='"gpt-6.1-sol"'`)).toEqual({ kind: 'review', model: 'gpt-6.1-sol', effort: null, isDetached: false, isExitShared: false })
   // The prompt is never an option.
   expect(parseCodexCli('codex exec "Compare --model gpt-6-astra with alternatives"')?.model).toBeNull()
   // Only a command in command position counts.
@@ -76,6 +77,27 @@ test('a codex the line sends off with & is detached; redirections and && are not
   expect(parseCodexCli('codex exec x |& tee log')?.isDetached).toBe(false)
   expect(parseCodexCli('codex exec x && sleep 1')?.isDetached).toBe(false)
   expect(parseCodexCli('sleep 1 & codex exec x')?.isDetached).toBe(false)
+})
+
+test('every codex call on a line is read, through wrappers and their options', () => {
+  expect(parseCodexCalls('codex exec -m gpt-6-luna first; codex review').map(c => [c.kind, c.model, c.isExitShared])).toEqual([
+    ['exec', 'gpt-6-luna', true],
+    ['review', null, false],
+  ])
+  expect(parseCodexCli('env -i PATH=/bin codex exec x')?.kind).toBe('exec')
+  expect(parseCodexCli('env -u HOME codex exec -m gpt-6-luna x')?.model).toBe('gpt-6-luna')
+  expect(parseCodexCli('timeout -s KILL 30 codex exec x')?.kind).toBe('exec')
+  expect(parseCodexCli('timeout --signal=KILL -k 5 30 codex review')?.kind).toBe('review')
+  expect(parseCodexCli('sudo -u bob nice -n 5 codex exec x')?.kind).toBe('exec')
+  // The exit status is the call's own only when nothing runs after it.
+  expect(parseCodexCli('codex exec x 2>&1 | tail -20')?.isExitShared).toBe(true)
+  expect(parseCodexCli('codex exec x; echo done')?.isExitShared).toBe(true)
+  expect(parseCodexCli('cd repo && codex exec x')?.isExitShared).toBe(false)
+  expect(parseCodexCli('codex exec - <<EOF\nprompt\nEOF')?.isExitShared).toBe(false)
+  // `wait` holds the shell until its jobs end, so a backgrounded codex it waits for is not detached.
+  expect(parseCodexCli('codex exec x & pid=$!; wait "$pid"')?.isDetached).toBe(false)
+  expect(parseCodexCli('codex exec x & wait')?.isDetached).toBe(false)
+  expect(parseCodexCli('codex exec x & echo started')?.isDetached).toBe(true)
 })
 
 test('here-document bodies are data, not commands', () => {
@@ -120,8 +142,8 @@ test('a run ends once, and the list keeps the newest', () => {
 test('task notifications are read for the call they end and how it ended', () => {
   const notice = (id: string, status: string) =>
     `<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>${status}</status>\n<summary>x</summary>\n</task-notification>`
-  expect(taskNotices(notice('t1', 'completed'))).toEqual([{ toolUseId: 't1', status: 'done' }])
-  expect(taskNotices(`${notice('t2', 'killed')}\n${notice('t3', 'failed')}`).map(n => n.status)).toEqual(['failed', 'failed'])
+  expect(taskNotices(notice('t1', 'completed'))).toEqual([{ toolUseId: 't1', status: 'completed' }])
+  expect(taskNotices(`${notice('t2', 'killed')}\n${notice('t3', 'failed')}`).map(n => n.status)).toEqual(['killed', 'failed'])
   expect(taskNotices(notice('t4', 'running'))).toEqual([]) // not an end
   expect(taskNotices('no notification here')).toEqual([])
   // Only a run in flight ends: a codex sent off with `&` outlives the shell that launched it.
@@ -129,6 +151,11 @@ test('task notifications are read for the call they end and how it ended', () =>
   runs = backgroundRun(pushRun(runs, cliRun('t5', parseCodexCli('codex exec x &')!, 2)), 't5')
   runs = endNoticed(runs, [...taskNotices(notice('t1', 'completed')), ...taskNotices(notice('t5', 'completed'))], 9)
   expect(runs.map(r => r.status)).toEqual(['done', 'background'])
+  // Every codex call of the shell ends; one with a command after it gets no verdict, unless the shell was killed.
+  const [a, b] = parseCodexCalls('codex exec a | tee log; codex review')
+  let two = [cliRun('t6', a!, 1), cliRun('t6:2', b!, 1)]
+  expect(endNoticed(two, taskNotices(notice('t6', 'completed')), 9).map(r => r.status)).toEqual(['ended', 'done'])
+  expect(endNoticed(two, taskNotices(notice('t6', 'killed')), 9).map(r => r.status)).toEqual(['failed', 'failed'])
 })
 
 test('plugins are read from names and MCP tools; tallies rank and draw', () => {
@@ -296,6 +323,44 @@ test('a codex the shell line sends off with & shows ◌ bg, apart from the runni
   expect(await ui.find({ text: /^◌ $/ })).toBeDefined()
   expect(await ui.find({ text: /^bg$/ })).toBeDefined()
   expect(await ui.find({ text: /0 running · 1 bg · 1 total/ })).toBeDefined() // its end is never seen, so it is not counted as running
+  await ui.unmount()
+})
+
+test('a background codex shell that fails to start ends as failed at once', async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: {}, text: 'could not start', isError: true }))
+  await $.tool.call({ tool: 'Bash', command: 'codex exec -m gpt-6-luna -c model_reasoning_effort=low x', run_in_background: true, tool_use_id: 'bf1' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /0 running · 1 total/ })).toBeDefined()
+  expect(await ui.find({ text: /^✗ $/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a codex piped into another command ends without a verdict; each call on a line is a run', async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  await $.tool.call({ tool: 'Bash', command: 'codex exec -m gpt-6-luna -c model_reasoning_effort=low x 2>&1 | tail -20', tool_use_id: 'p1' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'codex review; codex exec -m gpt-6-luna -c model_reasoning_effort=low y', tool_use_id: 'p2' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /0 running · 3 total/ })).toBeDefined()
+  expect(await ui.find({ text: /^■ $/ })).toBeDefined() // the piped run and the review followed by another call
+  expect(await ui.find({ text: /^✓ $/ })).toBeDefined() // the last call owns the exit status
+  expect(await ui.find({ text: /^✗ $/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a warned lane keeps its status glyph beside the ⚠', async ($, on) => {
+  engine(on)
+  on('ui.toast', () => ({ value: undefined }))
+  let n = 0
+  on('agent.spawn', (_$, e) => ({ model: e.model ?? 'claude-opus-5-5', agentId: `w${++n}` }))
+  await $.turn.start({ text: 'go', turnId: 'W1' })
+  for (const d of ['alpha', 'beta', 'gamma', 'delta']) await $.agent.spawn(spawn('general-purpose', `task ${d}`))
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'W1', agentId: 'w1', reason: 'error' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /━/ })).toBeDefined() // lanes: four cards don't fit
+  expect(await ui.find({ text: /^✗ $/ })).toBeDefined() // the failed lane still says so
+  expect(await ui.find({ text: /^⚠ $/ })).toBeDefined()
   await ui.unmount()
 })
 

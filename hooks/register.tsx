@@ -58,7 +58,7 @@ import {
 import type { Config, Panel } from './core'
 import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel } from './room/panels'
 import type { CodexRun } from './room/core'
-import { CODEX_RESCUE, backgroundRun, bump, cliRun, endNoticed, endRun, linkRun, parseCodexCli, pluginOfName, pluginOfTool, pushRun, rescueRun, stepKey, taskNotices } from './room/core'
+import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
 
@@ -795,11 +795,14 @@ export const register: Register = (on, options) => {
             {shown.map((c, i) => {
               const gm = geo[i]
               const isViewed = viewed === c.id
+              // ⚠ sits beside the status glyph, so a warned lane still shows ✓ or ✗.
+              const isWarned = !isViewed && ruleOf(c.id) !== undefined
               return (
                 <Box>
-                  <Text color={ruleOf(c.id) && !isViewed ? C.amber : statusColor(c)} bold={isViewed}>{`${isViewed ? '▶' : ruleOf(c.id) ? '⚠' : glyph(c)} `}</Text>
-                  <Box width={17}>
-                    <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={shorten(cardTitle(c), 14)} onPress={expandOnPress(c.id)} />
+                  <Text color={statusColor(c)} bold={isViewed}>{`${isViewed ? '▶' : glyph(c)} `}</Text>
+                  {isWarned ? <Text color={C.amber}>⚠ </Text> : null}
+                  <Box width={isWarned ? 15 : 17}>
+                    <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={shorten(cardTitle(c), isWarned ? 12 : 14)} onPress={expandOnPress(c.id)} />
                   </Box>
                   <Text color={C.faint}>{' ' + '·'.repeat(gm?.before ?? 0)}</Text>
                   <Text color={statusColor(c)}>{'━'.repeat(gm?.bar ?? 1)}</Text>
@@ -1154,23 +1157,26 @@ export const register: Register = (on, options) => {
 
   // Codex called straight from the shell.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const cli = parseCodexCli(e.command ?? '')
-    if (!cli) return next(e)
-    const run = cliRun(e.tool_use_id, cli, await $.clock.now())
-    await update($, codex, runs => pushRun(runs, run))
+    const calls = parseCodexCalls(e.command ?? '')
+    if (calls.length === 0) return next(e)
+    const at = await $.clock.now()
+    const runs = calls.map((cli, n) => cliRun(callRunId(e.tool_use_id, n), cli, at))
+    await update($, codex, list => runs.reduce((l, run) => pushRun(l, run), list))
     return next(e).then(
       async ran => {
-        // A background shell returns as it starts, and its task notification ends the run later
+        // A background shell returns as it starts, and its task notification ends its runs later
         // (endNotifiedCodex). A codex the line sends off with `&` outlives its shell: no event says
         // when it ends, so it shows bg.
-        const isFailed = ran.deny !== undefined || ran.isError === true
-        if (isFailed) await endCodex($, run, ran)
-        else if (cli.isDetached) await update($, codex, runs => backgroundRun(runs, run.id))
-        else if (e.run_in_background !== true) await endCodex($, run, ran)
+        for (const [n, run] of runs.entries()) {
+          if (ran.deny !== undefined) await endCodex($, run, ran) // it never ran
+          else if (calls[n]!.isDetached) await update($, codex, list => backgroundRun(list, run.id))
+          else if (e.run_in_background !== true) await endCodex($, run, ran)
+          else if (ran.isError === true) await endCodex($, run, null) // the background shell never started
+        }
         return ran
       },
       async err => {
-        await endCodex($, run, null)
+        for (const run of runs) await endCodex($, run, null)
         throw err
       },
     )
@@ -1213,8 +1219,7 @@ async function resetRoom($: EngineInterface) {
 /** A Codex run ends with its call: failed when refused, errored or thrown (`ran` null). */
 async function endCodex($: EngineInterface, run: CodexRun, ran: { deny?: string; isError?: boolean } | null) {
   const at = await $.clock.now()
-  const status = ran === null || ran.deny !== undefined || ran.isError === true ? 'failed' : 'done'
-  await update($, codex, runs => endRun(runs, run.id, status, at))
+  await update($, codex, runs => endRun(runs, run.id, shellEnd(run, ran), at))
 }
 
 /** Every model request: the main loop's and each subagent's, under the model and effort it ran on. */
