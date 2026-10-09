@@ -123,10 +123,10 @@ What it keeps: short summaries (a tool name plus a path or command, with credent
 - **Per-agent context is the latest request's whole input** (uncached + cache read + cache write). It is labelled `ctx`, not cost: the API has no per-agent cost.
 - **Other loops** can't tell a workflow agent from a compaction fork; both are model loops no card claims.
 - **A background agent's first step** can arrive before its card exists, so its usage may show one step late.
-- **Codex runs end with what the pane can see.** A `codex:codex-rescue` run ends when the rescue subagent finishes, even if that agent left Codex working in the background. A `codex exec` in a background shell ends when Claude Code's task notification for it arrives. One sent off with `&` on its own line outlives its shell, so no event says when it ends: it shows `◌ bg` and is counted apart from the running ones. A shell's exit status is its last command's, so a codex followed by another command (`| tail`, `; echo`) ends as `■`, without a verdict. Lines inside a here-document are data and never count as calls.
+- **Codex runs end with what the pane can see.** A `codex:codex-rescue` run ends when the rescue subagent finishes, even if that agent left Codex working in the background. A `codex exec` in a background shell ends when Claude Code's task notification for it arrives. One sent off with `&` on its own line outlives its shell, so no event says when it ends: it shows `◌ bg` and is counted apart from the running ones. A shell's exit status is its last command's, so a codex followed by another command (`| tail`, `; echo`) ends as `■`, without a verdict. So does a codex behind `&&` or `||` when the exit status could be the command before it, which may have kept codex from running. Lines inside a here-document are data and never count as calls.
 - **The shell reader is a heuristic, not a shell.** It reads quotes, here-documents, redirections, `&` lists, `wait`, line continuations and common wrappers (`env`, `timeout`, `nohup`, `sudo`, `nice`). It does not look inside `bash -c "…"`, `$(…)`, subshells `( … )` or `xargs`, and a comment after a codex call counts as a command, so that run ends as `■`.
 - **A rescue's model and effort** are read from `--model` and `--effort` anywhere in its prompt, because the codex-rescue agent treats them as runtime controls wherever they appear. A task that mentions those flags in prose is read the same way.
-- **The delegation rule sees the call, not the agent definition.** ⚠ means the spawn named no model and the agent runs on the main model. That holds even when the definition picked that same model itself. Turn it off with `delegationRule: false`.
+- **The delegation rule sees the call, not the agent definition.** ⚠ means the spawn named no model and the agent runs on the main model, or, for a subagent's own spawn, on its parent's. That holds even when the definition picked that same model itself. Turn it off with `delegationRule: false`.
 
 ## Configure
 
@@ -170,7 +170,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | [`hooks/rail.tsx`](hooks/rail.tsx), [`hooks/elapsed.tsx`](hooks/elapsed.tsx) | surface modules: animated connectors and live clocks that redraw only themselves, on the surface's own frame clock |
 | [`types/index.d.ts`](types/index.d.ts) | the state contract |
 | [`hooks/room/`](hooks/room) | Liveroom's additions: Codex call parsing, tallies and the models, codex and skills panels, as pure functions |
-| [`tests/`](tests) | 49 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
+| [`tests/`](tests) | 53 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
 
 State lives in `$.state` atoms. Every read is merged over defaults, so a missing or older field never breaks the pane; an update that changes the state's shape may still reset its counters once. New to mods? Start with [Claude Code mods](https://claude.com/blog/claude-code-mods) and [Getting started with Claude Code mods](https://claude.dev/blog/getting-started-with-claude-code-mods/).
 

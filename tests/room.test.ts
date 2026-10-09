@@ -17,6 +17,7 @@ import {
   pluginOfTool,
   pushRun,
   rescueRun,
+  shellVerdict,
   stepKey,
   taskNotices,
   top,
@@ -44,14 +45,14 @@ test('flags are read from prompts and command lines in every spelling', () => {
 })
 
 test('codex calls are read from their own option words, not their prompt or neighbours', () => {
-  expect(parseCodexCli('cd repo && codex exec "do it"')).toEqual({ kind: 'exec', model: null, effort: null, isDetached: false, isExitShared: false })
+  expect(parseCodexCli('cd repo && codex exec "do it"')).toEqual({ kind: 'exec', model: null, effort: null, isDetached: false, isExitShared: false, reachedBy: 'and' })
   expect(parseCodexCli('codex e "short form"')?.kind).toBe('exec')
   expect(parseCodexCli('codex review --base main')?.kind).toBe('review')
   // Global options before the subcommand.
-  expect(parseCodexCli('codex -m gpt-6-luna -c model_reasoning_effort=high exec "fix it"')).toEqual({ kind: 'exec', model: 'gpt-6-luna', effort: 'high', isDetached: false, isExitShared: false })
+  expect(parseCodexCli('codex -m gpt-6-luna -c model_reasoning_effort=high exec "fix it"')).toEqual({ kind: 'exec', model: 'gpt-6-luna', effort: 'high', isDetached: false, isExitShared: false, reachedBy: null })
   // Model as a config override, quoted the TOML way.
-  expect(parseCodexCli(`codex exec -c 'model="gpt-6.1-sol"' -c model_reasoning_effort="xhigh" go`)).toEqual({ kind: 'exec', model: 'gpt-6.1-sol', effort: 'xhigh', isDetached: false, isExitShared: false })
-  expect(parseCodexCli(`timeout 900 codex review --base main -c model='"gpt-6.1-sol"'`)).toEqual({ kind: 'review', model: 'gpt-6.1-sol', effort: null, isDetached: false, isExitShared: false })
+  expect(parseCodexCli(`codex exec -c 'model="gpt-6.1-sol"' -c model_reasoning_effort="xhigh" go`)).toEqual({ kind: 'exec', model: 'gpt-6.1-sol', effort: 'xhigh', isDetached: false, isExitShared: false, reachedBy: null })
+  expect(parseCodexCli(`timeout 900 codex review --base main -c model='"gpt-6.1-sol"'`)).toEqual({ kind: 'review', model: 'gpt-6.1-sol', effort: null, isDetached: false, isExitShared: false, reachedBy: null })
   // The prompt is never an option.
   expect(parseCodexCli('codex exec "Compare --model gpt-6-astra with alternatives"')?.model).toBeNull()
   // Only a command in command position counts.
@@ -99,6 +100,18 @@ test('every codex call on a line is read, through wrappers and their options', (
   expect(parseCodexCli('codex exec x & pid=$!; wait "$pid"')?.isDetached).toBe(false)
   expect(parseCodexCli('codex exec x & wait')?.isDetached).toBe(false)
   expect(parseCodexCli('codex exec x & echo started')?.isDetached).toBe(true)
+})
+
+test('a codex behind && or || may never run, so the exit status gives it no verdict either way', () => {
+  expect(parseCodexCalls('codex exec a || codex exec b').map(c => c.reachedBy)).toEqual([null, 'or'])
+  const run = (line: string) => cliRun('x', parseCodexCli(line)!, 1)
+  // After `&&`, a success means it ran and passed; a failure may be the command before it.
+  expect(shellVerdict(run('cd repo && codex exec x'), false)).toBe('done')
+  expect(shellVerdict(run('false && codex exec x'), true)).toBe('ended')
+  // After `||`, a failure means it ran and failed; a success may be the command before it.
+  expect(shellVerdict(run('true || codex exec x'), false)).toBe('ended')
+  expect(shellVerdict(run('make || codex exec x'), true)).toBe('failed')
+  expect(shellVerdict(run('codex exec x'), true)).toBe('failed')
 })
 
 test('here-document bodies are data, not commands', () => {
@@ -365,6 +378,16 @@ test('a background codex shell that fails to start ends as failed at once', asyn
   await ui.unmount()
 })
 
+test('a codex the line never reached shows no verdict, not a failure', async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: {}, text: '', isError: true }))
+  await $.tool.call({ tool: 'Bash', command: 'false && codex exec -m gpt-6-luna -c model_reasoning_effort=low x', tool_use_id: 'sk1' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^■ $/ })).toBeDefined()
+  expect(await ui.find({ text: /^✗ $/ })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('a codex piped into another command ends without a verdict; each call on a line is a run', async ($, on) => {
   engine(on)
   on('tool.call', () => ({ result: {}, text: 'ok' }))
@@ -387,6 +410,35 @@ test('an architect that silently inherits the main model shows ⚠ in the archit
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /⚠ no model in the call, runs on the main model/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('a denied skill, MCP tool or agent spawn counts toward nothing', async ($, on) => {
+  engine(on)
+  on('tool.call', (_$, e) => (String(e.tool_use_id).startsWith('no') ? { deny: 'not allowed' } : { result: {}, text: 'ok' }))
+  await $.tool.call({ tool: 'Skill', skill: 'vercel:deploy', tool_use_id: 'no1' } as never)
+  await $.tool.call({ tool: 'mcp__plugin_playwright_playwright__browser_click', tool_use_id: 'no2' } as never)
+  await $.tool.call({ tool: 'Agent', subagent_type: 'pr-review-toolkit:code-reviewer', prompt: 'x', description: 'x', tool_use_id: 'no3' } as never)
+  let ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /SKILLS · plugins/ })).toBeUndefined()
+  await ui.unmount()
+  await $.tool.call({ tool: 'Skill', skill: 'vercel:deploy', tool_use_id: 'ok1' } as never)
+  ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^vercel:deploy$/ })).toBeDefined()
+  expect(await ui.find({ text: /^×1$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a nested spawn without a model is said to inherit its parent model, not the main one', async ($, on) => {
+  engine(on)
+  const toasts: string[] = []
+  on('ui.toast', (_$, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  on('agent.spawn', (_$, e) => ({ model: e.model ?? e.parentModel, agentId: `ag-${e.description}` }))
+  await $.turn.start({ text: 'go', turnId: 'N1' })
+  await $.agent.spawn({ ...spawn('Explore', 'child'), parentModel: 'claude-sonnet-5-5', parentAgentId: 'parent1' } as never)
+  expect(toasts).toEqual(['⚠ Explore: no model in the call, inherits claude-sonnet-5-5 from its parent'])
 })
 
 test('a warned lane keeps its status glyph beside the ⚠', async ($, on) => {

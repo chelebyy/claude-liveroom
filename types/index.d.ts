@@ -115,6 +115,8 @@ export type CodexRun = {
   agentId: string | null
   /** Another command runs after it on the shell line, so the line's exit status is not its own. */
   isExitShared?: boolean
+  /** It runs only if the command before it succeeded (`and`) or failed (`or`). */
+  reachedBy?: 'and' | 'or' | null
 }
 
 declare module 'claude-code' {

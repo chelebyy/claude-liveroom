@@ -170,6 +170,15 @@ export type CodexCli = {
   isDetached: boolean
   /** Another command runs after it on the line, so the shell's exit status is not its own. */
   isExitShared: boolean
+  /** It runs only if the command before it succeeded (`&&`) or failed (`||`). */
+  reachedBy: 'and' | 'or' | null
+}
+
+/** The operator in front of the command that starts at `i`: `&&`, `||` or neither. */
+function reachedAt(words: readonly Word[], i: number): 'and' | 'or' | null {
+  const [a, b] = [words[i - 2], words[i - 1]]
+  if (!a?.isSep || !b?.isSep || a.word !== b.word) return null
+  return a.word === '&' ? 'and' : a.word === '|' ? 'or' : null
 }
 
 /** Whether a later command on the line is `wait`, which holds the shell until its jobs end. */
@@ -247,7 +256,9 @@ export function parseCodexCalls(line: string): CodexCli[] {
         if (plainWords === 1) kind = w === 'exec' || w === 'e' ? 'exec' : w === 'review' ? 'review' : null
         else if (plainWords === 2 && kind === 'exec' && w === 'review') kind = 'review'
       }
-      if (kind) calls.push({ kind, model, effort, isDetached: endsDetached(words, k), isExitShared: words.slice(k).some(w => !w.isSep) })
+      if (kind) {
+        calls.push({ kind, model, effort, isDetached: endsDetached(words, k), isExitShared: words.slice(k).some(w => !w.isSep), reachedBy: reachedAt(words, i) })
+      }
       i = k
       continue
     }
@@ -326,17 +337,28 @@ export function cliRun(id: string, cli: CodexCli, at: number): CodexRun {
     ruleNote: cli.kind === 'review' ? null : ruleNote(cli.model, cli.effort, true),
     agentId: null,
     isExitShared: cli.isExitShared,
+    reachedBy: cli.reachedBy,
   }
 }
 
 /** The id of a shell line's `n`th codex call (from 0): the call's own id first, then `id:2`, `id:3`. */
 export const callRunId = (toolUseId: string, n: number) => (n === 0 ? toolUseId : `${toolUseId}:${n + 1}`)
 
-/** How a run ends once its shell call returns: the line's exit status is its own only when nothing runs after it. */
+/**
+ * The verdict a shell's exit status gives a codex run. It is the run's own only when nothing runs
+ * after it, and even then a failure after `&&`, or a success after `||`, may be the command before
+ * it, with codex never run: those end without a verdict.
+ */
+export function shellVerdict(run: CodexRun, isError: boolean): 'done' | 'failed' | 'ended' {
+  if (run.isExitShared) return 'ended'
+  if ((run.reachedBy === 'and' && isError) || (run.reachedBy === 'or' && !isError)) return 'ended'
+  return isError ? 'failed' : 'done'
+}
+
+/** How a run ends once its shell call returns. */
 export function shellEnd(run: CodexRun, ran: { deny?: string; isError?: boolean } | null): 'done' | 'failed' | 'ended' {
   if (ran === null || ran.deny !== undefined) return 'failed' // it never ran, or the call broke
-  if (run.isExitShared) return 'ended'
-  return ran.isError === true ? 'failed' : 'done'
+  return shellVerdict(run, ran.isError === true)
 }
 
 /** Ends a run; one that is already over keeps its first ending. */
@@ -367,13 +389,13 @@ export function taskNotices(text: string): TaskNotice[] {
 /**
  * Ends the runs the notices report on: every codex call of the shell the notice names. Only a run
  * still in flight, since a codex sent off with `&` outlives that shell. A killed shell took its
- * codex with it; otherwise its exit status is the run's own only when nothing ran after it.
+ * codex with it; otherwise the shell's exit status gives the verdict shellVerdict allows.
  */
 export function endNoticed(runs: readonly CodexRun[], notices: readonly TaskNotice[], at: number): CodexRun[] {
   return runs.map(r => {
     const n = notices.find(x => r.id === x.toolUseId || r.id.startsWith(`${x.toolUseId}:`))
     if (!n || r.status !== 'running') return r
-    const status = n.status === 'killed' ? 'failed' : r.isExitShared ? 'ended' : n.status === 'completed' ? 'done' : 'failed'
+    const status = n.status === 'killed' ? 'failed' : shellVerdict(r, n.status === 'failed')
     return { ...r, status, endedAt: at }
   })
 }

@@ -384,10 +384,10 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', async ($, e, next) => {
-    await countPluginTool($, e.tool)
     callLoop.set(e.tool_use_id, e.agentId ?? null)
     const ran = await next(e).finally(() => callLoop.delete(e.tool_use_id))
     const didRun = ran.deny === undefined
+    if (didRun) await countPluginTool($, e.tool)
     // Settle this call's pending ask, if it had one; skip the write (and the redraw) otherwise.
     const g0 = await getGate($)
     const isSettled = settleCheck(g0, e.tool_use_id, didRun) !== g0
@@ -1144,9 +1144,13 @@ export const register: Register = (on, options) => {
   // A codex-rescue spawn is a Codex hand-off; any plugin's agent type counts toward that plugin.
   on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
     const type = e.subagent_type ?? 'general-purpose'
-    const owner = pluginOfName(type)
-    if (owner) await update($, plugins, p => bump(p, owner))
-    if (type !== CODEX_RESCUE) return next(e)
+    // A plugin counts once its agent runs: a denied spawn is no use.
+    const countOwner = async <R extends { deny?: string }>(ran: R): Promise<R> => {
+      const owner = pluginOfName(type)
+      if (owner && ran.deny === undefined) await update($, plugins, p => bump(p, owner))
+      return ran
+    }
+    if (type !== CODEX_RESCUE) return countOwner(await next(e))
     const run = rescueRun(e.tool_use_id, e.prompt ?? '', await $.clock.now())
     await update($, codex, runs => pushRun(runs, run))
     // The run ends with the rescue subagent (turn.complete, linked in noteSpawn). A background
@@ -1156,7 +1160,7 @@ export const register: Register = (on, options) => {
         const isFailed = ran.deny !== undefined || ran.isError === true
         const linked = (await read($, codex)).find(r => r.id === run.id)?.agentId
         if (isFailed || !linked) await endCodex($, run, isFailed ? null : ran)
-        return ran
+        return countOwner(ran)
       },
       async err => {
         await endCodex($, run, null)
@@ -1194,10 +1198,12 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: 'Skill' }, async ($, e, next) => {
     const name = e.skill ?? '?'
+    const ran = await next(e)
+    if (ran.deny !== undefined) return ran // a denied skill never ran
     await update($, skills, k => bump(k, name))
     const owner = pluginOfName(name)
     if (owner) await update($, plugins, p => bump(p, owner))
-    return next(e)
+    return ran
   })
 }
 
@@ -1269,7 +1275,7 @@ async function endCodexAgent($: EngineInterface, agentId: string, reason: string
  */
 async function noteSpawn(
   $: EngineInterface,
-  e: { tool_use_id: string; model?: string; parentModel: string; subagentType: string; fork?: boolean },
+  e: { tool_use_id: string; model?: string; parentModel: string; parentAgentId?: string; subagentType: string; fork?: boolean },
   started: { model?: string; agentId?: string; deny?: string },
   isRuleOn: boolean,
 ) {
@@ -1280,6 +1286,8 @@ async function noteSpawn(
     return
   }
   if (!isRuleOn || e.fork || e.model !== undefined || started.model !== e.parentModel) return
-  await update($, rules, r => noteRule(r, id, 'no model in the call, runs on the main model'))
-  $.ui.toast(`⚠ ${e.subagentType}: no model in the call, runs on ${started.model}`)
+  // A nested spawn's parent model is the calling subagent's, not the main loop's.
+  const note = e.parentAgentId ? "no model in the call, inherits its parent's model" : 'no model in the call, runs on the main model'
+  await update($, rules, r => noteRule(r, id, note))
+  $.ui.toast(e.parentAgentId ? `⚠ ${e.subagentType}: no model in the call, inherits ${started.model} from its parent` : `⚠ ${e.subagentType}: no model in the call, runs on ${started.model}`)
 }
