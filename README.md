@@ -88,7 +88,7 @@ Focus the pane with `ctrl+x tab`, then:
 | Key | Does |
 | --- | --- |
 | `1`, `2`, … | expand an agent card or lane: its full task, last 3 tool calls, start of its answer |
-| `f` `s` `o` | open the gate's file / shell / other drill-down: the last 5 checks and their verdicts |
+| `f` `s` `o` | open the gate's file / shell / other drill-down: the last 5 checks and their verdicts (`d` `k` `b` in Turkish: dosya / kabuk / başka) |
 
 `/clear` resets the pane along with the conversation.
 
@@ -148,7 +148,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | `openOnStart` | `true` | ask to open the pane when a session starts |
 | `statusLine` | `true` | context, running agents, consults and denials in the status line |
 | `delegationRule` | `true` | ⚠ and a toast for a subagent whose spawn names no model and that runs on the main model; ⚠ for a Codex hand-off without model or effort |
-| `language` | `auto` | the pane's language: `en`, `tr`, or `auto`, which follows Claude Code's own `language` setting (Turkish when it reads Turkish, English otherwise) |
+| `language` | `auto` | the pane's language: `en`, `tr`, or `auto`, which follows Claude Code's own `language` setting (Turkish when it reads Turkish, English otherwise); it is read when a session starts, and log lines already written keep their language |
 
 ## Troubleshooting
 
@@ -172,7 +172,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | [`hooks/rail.tsx`](hooks/rail.tsx), [`hooks/elapsed.tsx`](hooks/elapsed.tsx) | surface modules: animated connectors and live clocks that redraw only themselves, on the surface's own frame clock |
 | [`types/index.d.ts`](types/index.d.ts) | the state contract |
 | [`hooks/room/`](hooks/room) | Liveroom's additions: Codex call parsing, tallies and the models, codex and skills panels, as pure functions |
-| [`tests/`](tests) | 59 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
+| [`tests/`](tests) | 63 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
 
 State lives in `$.state` atoms. Every read is merged over defaults, so a missing or older field never breaks the pane; an update that changes the state's shape may still reset its counters once. New to mods? Start with [Claude Code mods](https://claude.com/blog/claude-code-mods) and [Getting started with Claude Code mods](https://claude.dev/blog/getting-started-with-claude-code-mods/).
 
