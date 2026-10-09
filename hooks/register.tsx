@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { ApiContentBlock, EngineInterface, Register } from 'claude-code'
 
 import type { AgentCard, Architect, Bucket, Check, Gate, Layout, LogLine, Loop, Main, Roster, Turn, Usage, View } from '../types'
 import {
@@ -56,6 +56,11 @@ import {
   stepLoop,
 } from './core'
 import type { Config, Panel } from './core'
+import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, roomRows } from './room/panels'
+import type { CodexRun } from './room/core'
+import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
+import type { RoomView } from './room/state'
+import { roomView } from './room/state'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -196,6 +201,7 @@ async function resetAll($: EngineInterface) {
   await update($, view, () => DEFAULT_VIEW)
   // The context gauge waits for the next measurement rather than showing the pre-clear fill.
   await update($, usage, x => ({ ...normalize(DEFAULT_USAGE, x), pct: null, tokens: null }))
+  await resetRoom($)
 }
 
 /** The session's cost read fresh, not from the last measurement: the receipt subtracts two of these. */
@@ -306,6 +312,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.step', async function* ($, e, next) {
+    await noteStep($, e.model, e.effort)
     // The main loop's model is known when its request starts; a long first request shouldn't read "—".
     if (!e.agentId) {
       await update($, main, m => {
@@ -380,6 +387,7 @@ export const register: Register = (on, options) => {
     callLoop.set(e.tool_use_id, e.agentId ?? null)
     const ran = await next(e).finally(() => callLoop.delete(e.tool_use_id))
     const didRun = ran.deny === undefined
+    if (didRun) await countPluginTool($, e.tool)
     // Settle this call's pending ask, if it had one; skip the write (and the redraw) otherwise.
     const g0 = await getGate($)
     const isSettled = settleCheck(g0, e.tool_use_id, didRun) !== g0
@@ -423,6 +431,7 @@ export const register: Register = (on, options) => {
 
   // A server-side review tool never reaches tool.call: it shows only in the assistant's rows.
   on('session.append', async ($, e, next) => {
+    if (e.origin.kind === 'task-notification') await endNotifiedCodex($, e.message.content)
     if (!e.agentId && e.message.type === 'assistant') {
       const a = await getArchitect($)
       // Consults this row opened: their result may be in the same row, after the stale read above.
@@ -449,6 +458,7 @@ export const register: Register = (on, options) => {
 
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
+    await noteSpawn($, e, started, cfg.delegationRule)
     if (!e.parentAgentId) await noteMode($, e.permissionMode)
     if (started.deny !== undefined || !started.agentId) return started
     const id = started.agentId
@@ -478,6 +488,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
+    if (e.agentId) await endCodexAgent($, e.agentId, e.reason)
     const id = e.agentId
     const now = await $.clock.now()
     if (!id) {
@@ -521,7 +532,7 @@ export const register: Register = (on, options) => {
     const els = $.ui.resolve(e)
     const { Box, Text, Button } = els
     const hasClient = 'Client' in els
-    const [m, u, a, g, cards, lp, lines, t, r, v, now] = await Promise.all([
+    const [m, u, a, g, cards, lp, lines, t, r, v, now, room] = await Promise.all([
       getMain($),
       getUsage($),
       getArchitect($),
@@ -533,7 +544,10 @@ export const register: Register = (on, options) => {
       read($, receipt),
       getView($),
       $.clock.now(),
+      readRoom($),
     ])
+    // A warning recorded earlier stays in the session; the option decides whether it shows now.
+    const ruleOf = (id: string) => (cfg.delegationRule ? room.rules[id] : undefined)
     const W = Math.max(40, e.props.bodyColumns)
     const layout = v.layout ?? cfg.layout
     const isWide = layout === 'wide' || (layout === 'auto' && W >= 110)
@@ -553,6 +567,9 @@ export const register: Register = (on, options) => {
       loops: lp.length === 0,
       receipt: !m.isRunning && !r,
       log: false,
+      models: isRoomEmpty('models', room),
+      codex: isRoomEmpty('codex', room),
+      skills: isRoomEmpty('skills', room),
     }
     const panels = cfg.panels.filter(p => !isEmpty[p])
     const decider = m.mode === 'auto' ? 'classifier' : 'you'
@@ -632,6 +649,8 @@ export const register: Register = (on, options) => {
 
     // ---- architect
     const lastConsult = a.consults[a.consults.length - 1]
+    // An architect agent has no card: its delegation warning shows under its last consult.
+    const archWarning = lastConsult ? ruleOf(lastConsult.id) : undefined
     const architectPanel = (w: number) => {
       const tl = consultTimeline(a, now, Math.max(8, w - 4))
       return (
@@ -657,6 +676,11 @@ export const register: Register = (on, options) => {
           ) : (
             <Text dimColor>not consulted yet</Text>
           )}
+          {archWarning ? (
+            <Text color={C.amber} wrap="truncate">
+              {`⚠ ${archWarning}`}
+            </Text>
+          ) : null}
           {cfg.moments ? (
             <Box flexWrap="wrap" columnGap={2}>
               {(['before a plan', 'error repeats', 'before done'] as const).map(mo => {
@@ -778,11 +802,14 @@ export const register: Register = (on, options) => {
             {shown.map((c, i) => {
               const gm = geo[i]
               const isViewed = viewed === c.id
+              // ⚠ sits beside the status glyph, so a warned lane still shows ✓ or ✗.
+              const isWarned = !isViewed && ruleOf(c.id) !== undefined
               return (
                 <Box>
                   <Text color={statusColor(c)} bold={isViewed}>{`${isViewed ? '▶' : glyph(c)} `}</Text>
-                  <Box width={17}>
-                    <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={shorten(cardTitle(c), 14)} onPress={expandOnPress(c.id)} />
+                  {isWarned ? <Text color={C.amber}>⚠ </Text> : null}
+                  <Box width={isWarned ? 15 : 17}>
+                    <Button key={`card-${c.id}`} plain hotkey={String(i + 1)} label={shorten(cardTitle(c), isWarned ? 12 : 14)} onPress={expandOnPress(c.id)} />
                   </Box>
                   <Text color={C.faint}>{' ' + '·'.repeat(gm?.before ?? 0)}</Text>
                   <Text color={statusColor(c)}>{'━'.repeat(gm?.bar ?? 1)}</Text>
@@ -819,6 +846,7 @@ export const register: Register = (on, options) => {
                     {titleLines(cardTitle(c), cardW - 7, cardW - 4)[1]}
                   </Text>
                   <Text color={C.dim} wrap="truncate">
+                    {ruleOf(c.id) ? <Text color={C.amber}>⚠ </Text> : null}
                     {sameModel ? c.type : `${c.type} · ${prettyModel(c.model)}`}
                   </Text>
                   <Text dimColor wrap="truncate">
@@ -903,7 +931,10 @@ export const register: Register = (on, options) => {
     }
 
     // ---- log: whatever rows the other panels leave, 4 to 8
-    const used = 2 + 5 + (showArchitect ? 6 : 0) + 6 + (v.gateOpen ? 5 : 0) + (cards.length > cfg.maxCards ? 3 + Math.min(6, cards.length) : 8) + (expandedCard ? 8 : 0) + (lp.length ? 1 : 0) + 3
+    // Liveroom's panels: stacked in one column they all add up; side by side, the taller column counts.
+    const rowsOf = (p: 'models' | 'codex' | 'skills') => (panels.includes(p) ? roomRows(p, room, cfg.delegationRule) : 0)
+    const roomUsed = isWide ? Math.max(rowsOf('models'), rowsOf('codex') + rowsOf('skills')) : rowsOf('models') + rowsOf('codex') + rowsOf('skills')
+    const used = 2 + 5 + (showArchitect ? 6 + (archWarning ? 1 : 0) : 0) + 6 + (v.gateOpen ? 5 : 0) + (cards.length > cfg.maxCards ? 3 + Math.min(6, cards.length) : 8) + (expandedCard ? 8 : 0) + (lp.length ? 1 : 0) + 3 + roomUsed
     const bodyRows = e.props.scroll?.bodyRows ?? e.viewport?.rows ?? 40
     const nLog = logRows(bodyRows, used)
     const shownLines = (viewed ? lines.filter(l => l.agentId === viewed) : lines).slice(-nLog)
@@ -932,7 +963,9 @@ export const register: Register = (on, options) => {
     )
 
     const draw = (p: Panel, w: number) =>
-      p === 'main'
+      isRoomPanel(p)
+        ? drawRoom(p, w, { els, C, palette: cfg.palette, room, isRuleOn: cfg.delegationRule, clock })
+        : p === 'main'
         ? mainPanel(w)
         : p === 'architect'
           ? architectPanel(w)
@@ -1035,6 +1068,7 @@ export const register: Register = (on, options) => {
           {live.map(c => (
             <Box>
               <Text color={statusColor(c)}>{`${glyph(c)} `}</Text>
+              {ruleOf(c.id) ? <Text color={C.amber}>⚠ </Text> : null}
               <Box width={Math.max(10, W - 30)}>
                 <Text wrap="truncate">{cardTitle(c)}</Text>
               </Box>
@@ -1061,6 +1095,7 @@ export const register: Register = (on, options) => {
         { label: 'agents', color: C.agent },
         { label: cfg.gateLabel.toLowerCase(), color: C.gate },
         ...(showArchitect ? [{ label: cfg.architectLabel.toLowerCase(), color: C.arch }] : []),
+        ...(panels.includes('codex') ? [{ label: 'codex', color: ROOM_COLORS[cfg.palette].codex }] : []),
       ],
       W,
     )
@@ -1068,8 +1103,8 @@ export const register: Register = (on, options) => {
     const body = isWide ? (
       <Box flexDirection="column">
         <Box columnGap={2}>
-          {column(panels.filter(p => p === 'main' || p === 'architect' || p === 'gate'), colW)}
-          {column(panels.filter(p => p === 'agents' || p === 'loops' || p === 'receipt'), colW)}
+          {column(panels.filter(p => p === 'main' || p === 'models' || p === 'architect' || p === 'gate'), colW)}
+          {column(panels.filter(p => p === 'agents' || p === 'codex' || p === 'loops' || p === 'skills' || p === 'receipt'), colW)}
         </Box>
         {panels.includes('log') ? logPanel(W) : null}
       </Box>
@@ -1103,4 +1138,160 @@ export const register: Register = (on, options) => {
       </Box>
     )
   })
+
+  // ---------------------------------------------------------------- Liveroom: hooks with a matcher
+
+  // A codex-rescue spawn is a Codex hand-off; any plugin's agent type counts toward that plugin.
+  on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
+    const type = e.subagent_type ?? 'general-purpose'
+    // A plugin counts once its agent runs: a denied spawn is no use.
+    const countOwner = async <R extends { deny?: string }>(ran: R): Promise<R> => {
+      const owner = pluginOfName(type)
+      if (owner && ran.deny === undefined) await update($, plugins, p => bump(p, owner))
+      return ran
+    }
+    if (type !== CODEX_RESCUE) return countOwner(await next(e))
+    const run = rescueRun(e.tool_use_id, e.prompt ?? '', await $.clock.now())
+    await update($, codex, runs => pushRun(runs, run))
+    // The run ends with the rescue subagent (turn.complete, linked in noteSpawn). A background
+    // spawn returns at once, so the call's return ends only a run no subagent picked up.
+    return next(e).then(
+      async ran => {
+        const isFailed = ran.deny !== undefined || ran.isError === true
+        const linked = (await read($, codex)).find(r => r.id === run.id)?.agentId
+        if (isFailed || !linked) await endCodex($, run, isFailed ? null : ran)
+        return countOwner(ran)
+      },
+      async err => {
+        await endCodex($, run, null)
+        throw err
+      },
+    )
+  })
+
+  // Codex called straight from the shell.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const calls = parseCodexCalls(e.command ?? '')
+    if (calls.length === 0) return next(e)
+    const at = await $.clock.now()
+    const runs = calls.map((cli, n) => cliRun(callRunId(e.tool_use_id, n), cli, at))
+    await update($, codex, list => runs.reduce((l, run) => pushRun(l, run), list))
+    return next(e).then(
+      async ran => {
+        // A background shell returns as it starts, and its task notification ends its runs later
+        // (endNotifiedCodex). A codex the line sends off with `&` outlives its shell: no event says
+        // when it ends, so it shows bg.
+        for (const [n, run] of runs.entries()) {
+          if (ran.deny !== undefined) await endCodex($, run, ran) // it never ran
+          else if (calls[n]!.isDetached && ran.isError === true) {
+            // The line failed: maybe before codex launched (a syntax error), maybe after. No verdict.
+            const at = await $.clock.now()
+            await update($, codex, list => endRun(list, run.id, 'ended', at))
+          } else if (calls[n]!.isDetached) await update($, codex, list => backgroundRun(list, run.id))
+          else if (e.run_in_background !== true) await endCodex($, run, ran)
+          else if (ran.isError === true) await endCodex($, run, null) // the background shell never started
+        }
+        return ran
+      },
+      async err => {
+        for (const run of runs) await endCodex($, run, null)
+        throw err
+      },
+    )
+  })
+
+  on('tool.call', { tool: 'Skill' }, async ($, e, next) => {
+    const name = e.skill ?? '?'
+    const ran = await next(e)
+    if (ran.deny !== undefined) return ran // a denied skill never ran
+    await update($, skills, k => bump(k, name))
+    const owner = pluginOfName(name)
+    if (owner) await update($, plugins, p => bump(p, owner))
+    return ran
+  })
+}
+
+// ---------------------------------------------------------------- Liveroom: state access
+// The engine follows $ and atoms only within the hooks module's own file, so these live here; the
+// logic they apply is in room/core.ts and the drawing in room/panels.tsx.
+
+const codex = atom({ plugin: 'liveroom', key: 'codex' } as const, [])
+const steps = atom({ plugin: 'liveroom', key: 'steps' } as const, {})
+const skills = atom({ plugin: 'liveroom', key: 'skills' } as const, {})
+const plugins = atom({ plugin: 'liveroom', key: 'plugins' } as const, {})
+const rules = atom({ plugin: 'liveroom', key: 'rules' } as const, {})
+
+/** Everything the room's panels draw from, read leniently. */
+async function readRoom($: EngineInterface): Promise<RoomView> {
+  const [c, s, k, p, r] = await Promise.all([read($, codex), read($, steps), read($, skills), read($, plugins), read($, rules)])
+  return roomView(c, s, k, p, r)
+}
+
+/** Clears the room with the rest of the pane, on `/clear` and `/liveroom reset`. */
+async function resetRoom($: EngineInterface) {
+  await update($, codex, () => [])
+  await update($, steps, () => ({}))
+  await update($, skills, () => ({}))
+  await update($, plugins, () => ({}))
+  await update($, rules, () => ({}))
+}
+
+/** A Codex run ends with its call: failed when refused, errored or thrown (`ran` null). */
+async function endCodex($: EngineInterface, run: CodexRun, ran: { deny?: string; isError?: boolean } | null) {
+  const at = await $.clock.now()
+  await update($, codex, runs => endRun(runs, run.id, shellEnd(run, ran), at))
+}
+
+/** Every model request: the main loop's and each subagent's, under the model and effort it ran on. */
+async function noteStep($: EngineInterface, model: string, effort: unknown) {
+  await update($, steps, s => bump(s, stepKey(model, effort)))
+}
+
+/** A plugin's MCP tool counts toward the plugin. */
+async function countPluginTool($: EngineInterface, tool: string) {
+  const owner = pluginOfTool(tool)
+  if (owner) await update($, plugins, p => bump(p, owner))
+}
+
+/** A codex-rescue run ends with its subagent: done on an answer, failed otherwise. */
+/** A background task's notification ends the Codex run its call started, done or failed as it says. */
+async function endNotifiedCodex($: EngineInterface, content: readonly ApiContentBlock[]) {
+  const notices = taskNotices(content.map(b => (b.type === 'text' ? b.text : '')).join('\n'))
+  if (notices.length === 0) return
+  const at = await $.clock.now()
+  await update($, codex, runs => endNoticed(runs, notices, at))
+}
+
+async function endCodexAgent($: EngineInterface, agentId: string, reason: string) {
+  const runs = await read($, codex)
+  const run = runs.find(r => r.agentId === agentId && (r.status === 'running' || r.status === 'background'))
+  if (!run) return
+  const at = await $.clock.now()
+  await update($, codex, list => endRun(list, run.id, reason === 'answer' ? 'done' : 'failed', at))
+}
+
+/**
+ * Links a codex-rescue run to its subagent, and applies the delegation rule to every other spawn:
+ * a call that names no model and runs on the main model gets ⚠ and a toast. The pane cannot see
+ * the agent definition's own model, so the note says only what it can see: no model in the call,
+ * running on the main model. Forks always inherit and are left alone; `delegationRule: false`
+ * turns the check off.
+ */
+async function noteSpawn(
+  $: EngineInterface,
+  e: { tool_use_id: string; model?: string; parentModel: string; parentAgentId?: string; subagentType: string; fork?: boolean },
+  started: { model?: string; agentId?: string; deny?: string },
+  isRuleOn: boolean,
+) {
+  if (started.deny !== undefined || !started.agentId) return
+  const id = started.agentId
+  if (e.subagentType === CODEX_RESCUE) {
+    await update($, codex, runs => linkRun(runs, e.tool_use_id, id))
+    return
+  }
+  if (!isRuleOn || e.fork || e.model !== undefined || started.model !== e.parentModel) return
+  // A nested spawn's parent model is the calling subagent's, not the main loop's.
+  const note = e.parentAgentId ? "no model in the call, inherits its parent's model" : 'no model in the call, runs on the main model'
+  await update($, rules, r => noteRule(r, id, note))
+  $.ui.toast(e.parentAgentId ? `⚠ ${e.subagentType}: no model in the call, inherits ${started.model} from its parent` : `⚠ ${e.subagentType}: no model in the call, runs on ${started.model}`)
 }

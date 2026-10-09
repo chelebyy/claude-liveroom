@@ -5,7 +5,7 @@
 
 **A Claude Code mod that puts a live room in your terminal**: context and cost, an advisor timeline, every permission check, and your subagents as cards or swimlanes. Every number comes from a real session event, and nothing leaves your machine.
 
-> Liveroom is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella, used under the MIT License. Everything it does today comes from Flightdeck 0.3.2; the screenshots below are still Flightdeck's. Coming next: Codex delegations, skill and plugin usage, model-rule checks, an agent-team room and a Turkish UI option.
+> Liveroom is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella, used under the MIT License. On top of Flightdeck 0.3.2 it adds the **models**, **codex** and **skills** panels and a ⚠ for subagents that silently inherit the main model; the screenshots below are still Flightdeck's. Coming next: an agent-team room and a Turkish UI option.
 
 <p align="center">
   <img src="docs/media/demo.gif" alt="Flightdeck during a live session: five audit subagents fan out as cards, switch to swimlanes and finish, while the permission gate fills with checks" width="520">
@@ -62,10 +62,13 @@ https://github.com/user-attachments/assets/9ad0fcc3-c81c-427a-a743-f7b6c49f5885
 | Panel | Shows | From |
 | --- | --- | --- |
 | **main** | model, effort, permission mode, request count; a context gauge with compactions (⟲); cost and the first two rate-limit windows when your plan reports them | `turn.step`, `session.measure`, `session.compact`, `$.session.usage()` |
+| **models** | requests per model and effort across the main loop and every subagent, ranked | `turn.step` |
 | **architect** | consults on a timeline, whether one is running, how long the last took; optionally the moment of each consult; the first line of a subagent architect's advice | a spawn of a matching agent type, or a matching server tool in the assistant's rows |
 | **gate** | one cell per permission check: green allowed without asking, blue decided by the auto-mode classifier or you and then run, amber pending, red ✗ denied, dim if made inside a subagent. Totals, and a drill-down per tool family with credentials masked | `tool.check`, settled by the `tool.call` around it |
 | **agents** | cards side by side while they fit: the task, type, live context and output tokens, steps, a running clock, `max_tokens` in red. Beyond that, swimlanes on one time axis | `agent.spawn`, `turn.step`, `tool.call`, `turn.complete` |
+| **codex** | work handed to Codex, through the `codex:codex-rescue` agent or `codex exec` / `codex review` in the shell: kind (rescue, consult, exec, review), model, effort, a running clock and the same status colours as the cards (◐ running, ✓ done, ✗ failed), ◌ bg for one sent off with `&`, and ■ for one that ended without a verdict; ⚠ when a hand-off names no model or effort | `tool.call` on `Agent` and `Bash`, background task notifications |
 | **loops** | model loops that match no card: workflow agents, compactions, memory forks | `turn.step` ids no card claims |
+| **skills** | skills called, and plugins used through their skills, agent types and MCP tools | `tool.call` |
 | **receipt** | the running turn, or the last one: duration, agents, edits, errors, cost added | `turn.start`, `turn.complete` |
 | **log** | prompts, spawns, completions, consults, edits, errors and denials; filtered to one agent while you view its transcript | all of the above |
 
@@ -109,8 +112,9 @@ Liveroom only watches. Every hook passes its event on unchanged: it never denies
 | your prompts' first 70 characters, for the log | `turn.start` |
 | context, cost and rate-limit readings | `session.measure`, `$.session.usage()` |
 | advisor tool calls in the assistant's responses (their content is encrypted) | `session.append` |
+| background task notifications: which call a task came from and how it ended | `session.append` |
 
-What it keeps: short summaries (a tool name plus a path or command, with credentials masked) in session state, which ends with the session. It makes **no** network requests, runs no processes, reads and writes no files, stores nothing across sessions, and calls no model. `claude plugin validate .` prints exactly what it hooks and calls.
+What it keeps: short summaries (a tool name plus a path or command, with credentials masked) and counters in session state, which ends with the session. It shows a toast when a subagent runs on the main model because its spawn named none. It makes **no** network requests, runs no processes, reads and writes no files, stores nothing across sessions, and calls no model. `claude plugin validate .` prints exactly what it hooks and calls.
 
 ## What is inferred, not measured
 
@@ -119,6 +123,10 @@ What it keeps: short summaries (a tool name plus a path or command, with credent
 - **Per-agent context is the latest request's whole input** (uncached + cache read + cache write). It is labelled `ctx`, not cost: the API has no per-agent cost.
 - **Other loops** can't tell a workflow agent from a compaction fork; both are model loops no card claims.
 - **A background agent's first step** can arrive before its card exists, so its usage may show one step late.
+- **Codex runs end with what the pane can see.** A `codex:codex-rescue` run ends when the rescue subagent finishes, even if that agent left Codex working in the background. A `codex exec` in a background shell ends when Claude Code's task notification for it arrives. One sent off with `&` on its own line outlives its shell, so no event says when it ends: it shows `◌ bg` and is counted apart from the running ones. A shell's exit status is its last command's, so a codex followed by another command (`| tail`, `; echo`) ends as `■`, without a verdict. So does a codex behind `||` whose line succeeded: the success could be the command before it, which kept codex from running. Behind `&&`, a failure counts as codex's, since the step before it (`cd repo`) nearly always succeeds. Lines inside a here-document are data and never count as calls.
+- **The shell reader is a heuristic, not a shell.** It reads quotes, here-documents, redirections, `&` lists, `wait`, line continuations, shell keywords (`if codex …`, `do codex …`) and common wrappers (`env`, `timeout`, `nohup`, `sudo`, `nice`). `wait` with a job id counts as waiting for codex, whichever job it names. It does not look inside `bash -c "…"`, `$(…)`, subshells `( … )` or `xargs`, and a comment after a codex call counts as a command, so that run ends as `■`.
+- **A rescue's model and effort** are read from `--model` and `--effort` anywhere in its prompt, because the codex-rescue agent treats them as runtime controls wherever they appear. A task that mentions those flags in prose is read the same way.
+- **The delegation rule sees the call, not the agent definition.** ⚠ means the spawn named no model and the agent runs on the main model, or, for a subagent's own spawn, on its parent's. That holds even when the definition picked that same model itself. Turn it off with `delegationRule: false`.
 
 ## Configure
 
@@ -130,7 +138,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | `matchDescriptions` | `false` | also match agent descriptions, not just type names |
 | `architectLabel` | `ARCHITECT` | the architect's name in the pane |
 | `gateLabel` | `GATE` | the permission panel's name |
-| `panels` | `main,architect,gate,agents,loops,receipt,log` | which panels show, in order |
+| `panels` | `main,models,architect,gate,agents,codex,loops,skills,receipt,log` | which panels show, in order |
 | `layout` | `auto` | `mini`, `compact`, `wide`, or `auto` (mini inline, wide from 110 columns docked) |
 | `maxCards` | `3` | cards side by side before swimlanes (1–6); fewer if the pane is too narrow |
 | `motion` | `while-active` | `off` keeps connectors still |
@@ -138,6 +146,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | `palette` | `theme` | `pastel` uses fixed colours tuned for dark terminals |
 | `openOnStart` | `true` | ask to open the pane when a session starts |
 | `statusLine` | `true` | context, running agents, consults and denials in the status line |
+| `delegationRule` | `true` | ⚠ and a toast for a subagent whose spawn names no model and that runs on the main model; ⚠ for a Codex hand-off without model or effort |
 
 ## Troubleshooting
 
@@ -160,7 +169,8 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | [`hooks/core.ts`](hooks/core.ts) | every reducer, formatter and layout rule as pure functions, so behaviour is testable directly |
 | [`hooks/rail.tsx`](hooks/rail.tsx), [`hooks/elapsed.tsx`](hooks/elapsed.tsx) | surface modules: animated connectors and live clocks that redraw only themselves, on the surface's own frame clock |
 | [`types/index.d.ts`](types/index.d.ts) | the state contract |
-| [`tests/`](tests) | 24 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
+| [`hooks/room/`](hooks/room) | Liveroom's additions: Codex call parsing, tallies and the models, codex and skills panels, as pure functions |
+| [`tests/`](tests) | 55 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
 
 State lives in `$.state` atoms. Every read is merged over defaults, so a missing or older field never breaks the pane; an update that changes the state's shape may still reset its counters once. New to mods? Start with [Claude Code mods](https://claude.com/blog/claude-code-mods) and [Getting started with Claude Code mods](https://claude.dev/blog/getting-started-with-claude-code-mods/).
 

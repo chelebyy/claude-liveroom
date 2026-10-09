@@ -1,6 +1,6 @@
 {
   "name": "liveroom",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Liveroom: a live room for your Claude Code session. Main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log, all from real session events. Based on Flightdeck by Stephen Casella.",
   "author": {
     "name": "chelebyy",
@@ -41,9 +41,9 @@
     },
     "panels": {
       "title": "Panels",
-      "description": "Comma-separated panels in display order: main, architect, gate, agents, loops, receipt, log. Leave one out to hide it.",
+      "description": "Comma-separated panels in display order: main, models, architect, gate, agents, codex, loops, skills, receipt, log. Leave one out to hide it.",
       "type": "string",
-      "default": "main,architect,gate,agents,loops,receipt,log"
+      "default": "main,models,architect,gate,agents,codex,loops,skills,receipt,log"
     },
     "motion": {
       "title": "Motion",
@@ -104,6 +104,12 @@
     "statusLine": {
       "title": "Status line",
       "description": "Show context, agents, consults and denials in the status line",
+      "type": "boolean",
+      "default": true
+    },
+    "delegationRule": {
+      "title": "Delegation rule",
+      "description": "Flag (⚠ and a toast) a subagent whose spawn names no model and that runs on the main model, and a Codex hand-off that names no model or effort",
       "type": "boolean",
       "default": true
     }

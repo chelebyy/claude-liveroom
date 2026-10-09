@@ -1,5 +1,18 @@
 # Changelog
 
+## Liveroom 0.2.0
+
+- **codex** panel: work handed to Codex through the `codex:codex-rescue` agent or `codex exec` / `codex review`, with its kind, model, effort and a running clock. It uses the agent cards' status colours: ◐ running, ✓ done, ✗ failed.
+- **models** panel: requests per model and effort across the main loop and every subagent.
+- **skills** panel: skills called, and plugins used through their skills, agent types and MCP tools. A denied call counts toward nothing.
+- Delegation rule: a subagent that names no model and silently runs on the main model gets ⚠ on its card, its lane and its row in the inline summary, and a toast. The ⚠ sits beside the status glyph, so a warned agent still shows ✓ or ✗. An architect agent, which has no card, shows it under its last consult. A subagent's own spawn is said to inherit its parent's model, not the main one. The session keeps the notes of the newest 24 agents, as many as the cards. A Codex hand-off without a model or effort gets ⚠ in the codex panel.
+- The default `panels` setting lists the three new panels. A custom `panels` value keeps its own list.
+- `delegationRule` option (default on) turns the ⚠ checks off, including warnings recorded before it was switched off.
+- Codex calls are read from their own option words: global options before `exec` or `review` work, `-c model=…` is read, and a prompt that mentions `--model` is not mistaken for one. A codex-rescue run ends with its subagent. A `codex exec` in a background shell ends when its task notification arrives, done or failed as it says; one sent off with a trailing `&` shows `◌ bg` and is counted apart from the running ones, since no event says when it ends. A codex followed by another command on its line ends as `■`: the shell's exit status is not its own. So does one behind `||` whose line succeeded, since that success could be the command before it; behind `&&`, a failure counts as codex's. Redirections such as `2>&1` are not separators, here-document lines are not calls, a backslash-newline continues a command, and `codex exec review` counts as a review. Every codex call on a line is its own run, wrappers are read with their options (`env -i`, `timeout -s KILL 30`), a command after a shell keyword counts (`if codex …`, `do codex …`), and a backgrounded codex the line `wait`s for is not detached. A long model id is shortened so the row's status glyph and kind always show. A codex sent off with `&` on a line that failed ends as `■`, since it may never have launched. `codex exec --help` is not a hand-off, `! codex …` ends without a verdict since `!` reverses its exit status, and a rescue's `--model ollama/qwen2.5-coder:32b` is read whole.
+- A rescue counts as a consult only when a clause of its own says read-only or no file edits, not when it only spares some files or mentions a read-only field.
+- The codex list keeps 30 runs by dropping finished ones first, those without a verdict included; a run still in flight is never dropped.
+- The session log leaves room for the new panels, so full room panels don't push the pane past its viewport.
+
 ## Liveroom 0.1.0
 
 - Forked from Flightdeck 0.3.2 and renamed: the plugin is `liveroom`, the marketplace `claude-liveroom`, the command `/liveroom`, and settings live under `pluginConfigs["liveroom"]`.
