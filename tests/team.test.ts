@@ -141,6 +141,9 @@ test('the task list: created, updated, owned, deleted, and replaced by a TaskLis
   expect(listTasks([], [{ id: '1', subject: secret, status: 'pending' }])[0]?.subject).not.toContain('abcdefghijklmnop')
   expect(assignTask([], '1', secret, 'scout')[0]?.subject).not.toContain('abcdefghijklmnop')
   expect(updateTask([], { taskId: '1', owner: secret })[0]?.owner).not.toContain('abcdefghijklmnop') // owners too
+  // A long name is kept whole, so the teammate still finds its task.
+  const long = 'reviewer-'.repeat(8)
+  expect(taskOf(updateTask([{ id: '1', subject: 's', status: 'in_progress', owner: null }], { taskId: '1', owner: long }), long)?.id).toBe('1')
 })
 
 test('a plan answer wakes its teammate; only the team\'s traffic is the team\'s', () => {
@@ -485,6 +488,21 @@ test('a teammate respawned under its address drops its old ⚠ when the new spaw
   expect(await ui.find({ text: /^1 working · 0 idle$/ })).toBeDefined()
   expect(await ui.find({ text: /^⚠ $/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('a task the lead assigns to a waiting teammate sets it to work', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  const statuses: string[] = []
+  engine(on, statuses)
+  await $.session.start(START)
+  await spawnTeammate($, 'critic') // in a pane of its own: no step of its says it works
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'critic', isVerified: false }, text: '{"type":"idle_notification","from":"critic"}' } as never)
+  expect(statuses.at(-1)).toContain('team 0/1')
+  await $.tool.call({ tool: 'TaskCreate', subject: 'audit auth', description: 'd', tool_use_id: 'k1' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', owner: 'critic', tool_use_id: 'k2' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^1 working · 0 idle$/ })).toBeDefined()
+  await ui.unmount()
+  expect(statuses.at(-1)).toContain('team 1/1')
 })
 
 test('the inline summary lists working teammates first', { options: { language: 'en', openOnStart: false } }, async ($, on) => {

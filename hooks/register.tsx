@@ -1293,7 +1293,9 @@ export const register: Register = (on, options) => {
   })
   on('tool.call', { tool: 'TaskUpdate' }, async ($, e, next) => {
     const ran = await next(e)
-    if ((ran.result as { success?: unknown } | undefined)?.success === true) await update($, tasks, ts => updateTask(tasksOf(ts), e))
+    if ((ran.result as { success?: unknown } | undefined)?.success !== true) return ran
+    await update($, tasks, ts => updateTask(tasksOf(ts), e))
+    if (typeof e.owner === 'string' && e.owner) await wakeOwner($, cfg, e.owner, e.agentId)
     return ran
   })
   on('tool.call', { tool: 'TaskList' }, async ($, e, next) => {
@@ -1401,6 +1403,18 @@ async function endTeammates($: EngineInterface) {
   const ids = new Set(teamOf(await read($, team)).members.map(m => m.id))
   await update($, rules, r => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([id]) => !ids.has(id))))
   await update($, team, () => ({ members: [], messages: [] }))
+}
+
+/**
+ * A task assigned to a waiting teammate sets it to work, which a pane teammate's turns can't say
+ * here. One that claims a task itself is already at work.
+ */
+async function wakeOwner($: EngineInterface, cfg: Config, owner: string, by: string | undefined) {
+  const member = memberNamed(teamOf(await read($, team)), owner)
+  if (!member || member.id === by || (member.state !== 'idle' && member.state !== 'failed')) return
+  const at = await $.clock.now()
+  await update($, team, t => reopen(teamOf(t), member.id, at))
+  await refreshStatus($, cfg)
 }
 
 /** Forgets an agent's delegation note. */

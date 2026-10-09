@@ -10,7 +10,7 @@
 - A message or a turn of its own brings back an in-process teammate that stopped, as Claude Code revives it; an idle notice for a turn that ended on an API error marks the teammate failed.
 - `/clear` and `/liveroom reset` keep teammates, their ⚠ and the task list, since `/clear` clears only the lead's conversation; the team's messages go, and so does a pane teammate that shut down.
 - Teammates in panes of their own run outside the lead's process. Their state is read from their messages and the team's idle, shutdown and termination notices; their plan requests and plan and shutdown answers show as such, and anything else they write, JSON included, as a message. See "What is inferred".
-- The team panel shows only the team's messages, between the lead and a teammate or two teammates: SendMessage to or from another session stays out. A plan answer or a shutdown request wakes its teammate like a message.
+- The team panel shows only the team's messages, between the lead and a teammate or two teammates: SendMessage to or from another session stays out. A plan answer, a shutdown request, or a task assigned to it with TaskUpdate wakes a teammate like a message.
 - A session that ends other than by `/clear` (a resume, a branch, an exit) clears its team, as Claude Code brings none of its teammates back; the task list stays.
 - Task subjects and owners are stored with credentials masked, as every other text from a tool input.
 - A teammate respawned under its address drops its old ⚠ unless the new spawn earns one; the inline summary lists working teammates first.

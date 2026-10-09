@@ -210,8 +210,11 @@ const STATUSES: readonly TeamTask['status'][] = ['pending', 'in_progress', 'comp
 /** A task's subject as stored and shown: credentials masked, one line, 120 characters at most. */
 const subjectOf = (x: unknown) => shorten(redact(str(x) ?? ''), 120)
 
-/** A task's owner as stored: a name, credentials masked all the same; none when empty. */
-const ownerOf = (x: unknown) => shorten(redact(str(x) ?? ''), 40) || null
+/**
+ * A task's owner as stored: a teammate's name whole (up to 256 characters), so it still matches the
+ * member; credentials masked all the same; none when empty. The panel shortens it when drawn.
+ */
+const ownerOf = (x: unknown) => shorten(redact(str(x) ?? ''), 256) || null
 const statusOf = (x: unknown): TeamTask['status'] | null => (STATUSES as readonly unknown[]).includes(x) ? (x as TeamTask['status']) : null
 
 /** The task list read leniently: entries without an id are dropped. */
