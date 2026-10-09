@@ -57,6 +57,13 @@ export const memberOf = (team: Team, id: string | undefined) => (id ? team.membe
 export const memberNamed = (team: Team, name: string) =>
   [...team.members].reverse().find(m => m.name === name && m.state !== 'ended') ?? [...team.members].reverse().find(m => m.name === name)
 
+/** The rows a roster of `n` shows: every teammate not shut down first, then the newest that did. */
+export function rosterRows(members: readonly TeamMember[], n: number): TeamMember[] {
+  const live = members.filter(m => m.state !== 'ended').slice(-n)
+  const room = n - live.length
+  return [...live, ...(room > 0 ? members.filter(m => m.state === 'ended').slice(-room) : [])]
+}
+
 /**
  * A member's state changes; one that ended stays ended, as a notice can arrive after its shutdown,
  * and an unchanged state keeps its clock.

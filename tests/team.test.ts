@@ -18,6 +18,7 @@ import {
   noticeOf,
   protocolOf,
   reopen,
+  rosterRows,
   setState,
   taskOf,
   turnEndState,
@@ -165,6 +166,13 @@ test('the roster drops the oldest teammates that shut down first, never one stil
   t = setState(t, 'b1', 'idle', 300)
   t = applyMessage(t, messageOf({ to: 'late', message: { type: 'shutdown_request', reason: 'done' } }, LEAD, 310)!)
   expect(t.members.find(m => m.id === 'b1')?.state).toBe('working')
+})
+
+test('the roster rows show every teammate still running before those that shut down', () => {
+  let t = joinTeam(EMPTY, { id: 'w', teammateId: 'worker@x', model: '' }, 0)
+  for (let i = 0; i < 6; i++) t = setState(joinTeam(t, { id: `e${i}`, teammateId: `gone${i}@x`, model: '' }, i + 1), `e${i}`, 'ended', 10)
+  expect(rosterRows(t.members, 6).map(m => m.id)).toEqual(['w', 'e1', 'e2', 'e3', 'e4', 'e5'])
+  expect(rosterRows(t.members.slice(1), 3).map(m => m.id)).toEqual(['e3', 'e4', 'e5']) // the newest that shut down
 })
 
 test('a long task list drops the oldest done first, so work in progress stays', () => {

@@ -9,7 +9,7 @@ import { meter, runGlyph, top } from './core'
 import type { Key, T } from './i18n'
 import type { RoomView } from './state'
 import type { MemberState, TeamMessage, TeamTask } from './team'
-import { boardRows, isLead, taskOf } from './team'
+import { boardRows, isLead, rosterRows, taskOf } from './team'
 
 export type RoomPanel = 'models' | 'codex' | 'skills' | 'team' | 'tasks'
 export const ROOM_PANELS: readonly RoomPanel[] = ['models', 'codex', 'skills', 'team', 'tasks']
@@ -200,7 +200,7 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
     const { members, messages } = room.team
     const working = members.filter(m => m.state === 'working').length
     const idle = members.filter(m => m.state === 'idle').length
-    const shown = members.slice(-TEAM_ROWS)
+    const shown = rosterRows(members, TEAM_ROWS)
     const nameW = Math.min(12, Math.max(4, ...shown.map(m => m.name.length)))
     return frame(
       RC.team,
