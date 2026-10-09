@@ -53,9 +53,14 @@ function boundMembers(members: readonly TeamMember[]): TeamMember[] {
 
 export const memberOf = (team: Team, id: string | undefined) => (id ? team.members.find(m => m.id === id) : undefined)
 
-/** The live member a name addresses: the newest one, as a respawn under the name replaces the old. */
-export const memberNamed = (team: Team, name: string) =>
-  [...team.members].reverse().find(m => m.name === name && m.state !== 'ended') ?? [...team.members].reverse().find(m => m.name === name)
+/**
+ * The member a name addresses, or its id, as SendMessage takes either: the newest live one, as a
+ * respawn under the name replaces the old.
+ */
+export const memberNamed = (team: Team, name: string) => {
+  const is = (m: TeamMember) => m.name === name || m.id === name
+  return [...team.members].reverse().find(m => is(m) && m.state !== 'ended') ?? [...team.members].reverse().find(is)
+}
 
 /** The rows a roster of `n` shows: every teammate not shut down first, then the newest that did. */
 export function rosterRows(members: readonly TeamMember[], n: number): TeamMember[] {

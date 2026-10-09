@@ -67,6 +67,9 @@ test('a message counts toward its sender, wakes a waiting teammate, and an appro
   t = setState(t, 'a1', 'idle', 5)
   t = applyMessage(t, messageOf({ to: 'scout', message: 'next task' }, LEAD, 10)!)
   expect([t.members[0]?.state, t.members[0]?.since]).toEqual(['working', 10])
+  // Addressed by its id, as SendMessage also takes, it wakes all the same.
+  t = applyMessage(setState(t, 'a1', 'idle', 10), messageOf({ to: 'a1', message: 'by id' }, LEAD, 11)!)
+  expect([t.members[0]?.state, t.members[0]?.since]).toEqual(['working', 11])
   t = applyMessage(t, messageOf({ to: LEAD, message: 'on it' }, 'scout', 11)!)
   expect(t.members[0]?.sent).toBe(1)
   t = applyMessage(t, messageOf({ to: LEAD, message: { type: 'shutdown_response', request_id: 'r', approve: true } }, 'scout', 12)!)
