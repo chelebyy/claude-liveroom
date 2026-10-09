@@ -55,7 +55,7 @@ import {
   stepLoop,
 } from './core'
 import type { Config, Panel } from './core'
-import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, loopDots, roomRows } from './room/panels'
+import { ROOM_COLORS, drawRoom, isRoomEmpty, isRoomPanel, loopDots, mainModel, roomRows } from './room/panels'
 import type { CodexRun } from './room/core'
 import { CODEX_RESCUE, backgroundRun, bump, callRunId, cliRun, endNoticed, endRun, linkRun, noteRule, openerOf, parseCodexCalls, pluginOfName, pluginOfTool, pushRun, rescueRun, shellEnd, stepKey, taskNotices } from './room/core'
 import type { LanguageOption, T } from './room/i18n'
@@ -607,13 +607,14 @@ export const register: Register = (on, options) => {
     // ---- main
     const effortN = { low: 1, medium: 2, high: 3, xhigh: 4, max: 4 }[m.effort] ?? 0
     const ctxGauge = u.pct !== null ? gauge(u.pct, 10) : null
+    const mainState = m.isRunning ? tx('● working') : tx('○ idle')
     const mainPanel = (w: number) => (
       <Box flexDirection="column" borderStyle="round" borderColor={C.main} paddingX={1} width={w}>
         <Box justifyContent="space-between">
           <Text color={C.main} bold>
-            {modelName} · {tx('main')}
+            {mainModel(modelName, ` · ${tx('main')}`, mainState, w)} · {tx('main')}
           </Text>
-          <Text color={m.isRunning ? C.main : C.dim}>{m.isRunning ? tx('● working') : tx('○ idle')}</Text>
+          <Text color={m.isRunning ? C.main : C.dim}>{mainState}</Text>
         </Box>
         <Text wrap="truncate">
           <Text dimColor>{tx('effort ')}</Text>

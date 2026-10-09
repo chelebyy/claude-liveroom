@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { clockAblative, isKey, langOf, makeT } from '../hooks/room/i18n'
 import { openerOf } from '../hooks/room/core'
-import { loopDots } from '../hooks/room/panels'
+import { loopDots, mainModel } from '../hooks/room/panels'
 
 test('the language comes from the option, or under auto from Claude Code\'s own setting', () => {
   expect(langOf('en', 'Turkish')).toBe('en')
@@ -306,4 +306,23 @@ test('labels lower-case by their own script: Turkish letters the Turkish way, an
   const ui = await $.ui.mount({ ...p, props: { ...p.props, placement: 'inline' as const }, surface: 'terminal' })
   expect(await ui.find({ text: /^kapı denetimi $/ })).toBeDefined() // not "kapi deneti̇mi"
   await ui.unmount()
+})
+
+test('the main panel\'s model name gives way for its state at 40 columns, in either language', () => {
+  for (const lang of ['tr', 'en'] as const) {
+    const t = makeT(lang)
+    const role = ` · ${t('main')}`
+    for (const state of [t('● working'), t('○ idle')]) {
+      // An unknown id is kept to 22 characters; the frame of 40 has 36 inside its border and padding.
+      for (const id of ['acme-lab-model-x1-v2', 'acme-lab-model-x1-v2-22']) {
+        const shown = mainModel(id, role, state, 40)
+        expect(shown.length + role.length + 1 + state.length).toBeLessThanOrEqual(36)
+        expect(shown.startsWith('acme-lab-model')).toBe(true)
+      }
+      expect(mainModel('Opus 5.5', role, state, 40)).toBe('Opus 5.5')
+    }
+  }
+  // English keeps a 19-character id whole at 40 columns, as before; Turkish shortens one past 18.
+  expect(mainModel('acme-lab-model-x1-v', ' · main', '● working', 40)).toBe('acme-lab-model-x1-v')
+  expect(mainModel('acme-lab-model-x1-v', ' · ana', '● çalışıyor', 40)).toBe('acme-lab-model-x1…')
 })

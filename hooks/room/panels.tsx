@@ -61,6 +61,12 @@ export function roomRows(p: RoomPanel, room: RoomView, isRuleOn: boolean): numbe
  */
 export const loopDots = (w: number, used: number) => Math.min(Math.max(4, w - 38), Math.max(1, w - used))
 
+/**
+ * The main panel's model name in a frame of `w`, beside its role (` · main`) and its state (`● working`):
+ * an unknown model id keeps 22 characters, so it gives way for the state and a space before it.
+ */
+export const mainModel = (model: string, role: string, state: string, w: number) => shorten(model, w - 5 - role.length - state.length)
+
 /** The cards' colours: running in the agent colour, done green, failed red; a run without a verdict dims. */
 export const statusColorOf = (C: Colors, s: RunStatus) =>
   s === 'failed' ? C.warn : s === 'done' ? C.gate : s === 'background' || s === 'ended' ? C.dim : C.agent
