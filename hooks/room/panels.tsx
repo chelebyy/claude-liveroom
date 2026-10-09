@@ -9,7 +9,7 @@ import { meter, runGlyph, top } from './core'
 import type { Key, T } from './i18n'
 import type { RoomView } from './state'
 import type { MemberState, TeamMessage, TeamTask } from './team'
-import { LEAD, boardRows, taskOf } from './team'
+import { boardRows, isLead, taskOf } from './team'
 
 export type RoomPanel = 'models' | 'codex' | 'skills' | 'team' | 'tasks'
 export const ROOM_PANELS: readonly RoomPanel[] = ['models', 'codex', 'skills', 'team', 'tasks']
@@ -193,8 +193,8 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
     )
   }
 
-  // The lead is `team-lead` in its team's messages; the pane names it in its own language.
-  const who = (name: string) => (name === LEAD ? t('lead') : name)
+  // The lead is `team-lead` (or `main`) in its team's messages; the pane names it in its own language.
+  const who = (name: string) => (isLead(name) ? t('lead') : name)
 
   if (p === 'team') {
     const { members, messages } = room.team

@@ -4,13 +4,15 @@
 
 - **team** panel: an agent team's teammates, ● working, ○ idle with how long it has waited, ■ shut down, ✗ failed, with the task each works on; ▣ marks one in a terminal pane of its own. Below them, the last three messages between the lead and its teammates, shutdown and plan answers included, each a summary or first line with credentials masked.
 - **tasks** panel: the task list the Task tools keep, work in progress first, then what waits, then the newest done, each with its owner.
-- A teammate no longer shows as a finished agent card after its first turn: teammates leave the agent cards for the team panel, so the agents header and the status line's `agents` count leave them out. The status line counts working teammates (`team 1/2`), and the inline summary gives teammates still running a row, showing two agents instead of three when there is one.
+- A teammate no longer shows as a finished agent card after its first turn: teammates leave the agent cards for the team panel, so the agents header and the status line's `agents` count leave them out. The status line counts working teammates (`team 1/2`), and the inline summary gives teammates still running a row, showing two agents instead of three when there is one, unless `panels` leaves `team` out.
 - A teammate whose spawn names no model and runs on the lead's gets the delegation rule's ⚠ in the team panel and the summary, as an agent card did.
 - A teammate stopped without the shutdown handshake, whose turn is cut short and who has left the session's agent list or is listed as stopped, shows ■; one interrupted but still running waits. The status line follows a teammate waking or stopping.
 - A message or a turn of its own brings back an in-process teammate that stopped, as Claude Code revives it; an idle notice for a turn that ended on an API error marks the teammate failed.
 - `/clear` and `/liveroom reset` keep teammates, their ⚠ and the task list, since `/clear` clears only the lead's conversation; the team's messages go, and so does a pane teammate that shut down.
 - Teammates in panes of their own run outside the lead's process. Their state is read from their messages and the team's idle, shutdown and termination notices; their plan requests and plan and shutdown answers show as such, and anything else they write, JSON included, as a message. See "What is inferred".
-- The team panel shows only the team's messages: SendMessage to another session stays out.
+- The team panel shows only the team's messages, between the lead and a teammate or two teammates: SendMessage to or from another session stays out. A plan answer wakes its teammate like a message.
+- The task list keeps 200 tasks, dropping the oldest done first, so work in progress stays however long the list.
+- A teammate whose first step comes before its spawn's answer leaves the other-loops row when it joins.
 - A message from another agent or session reaches the log as its tag and sender (`teammate message from scout`), not as your prompt: Claude Code now puts a note before it. A background architect's hand-back behind that note is read as its advice again.
 - The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.
 

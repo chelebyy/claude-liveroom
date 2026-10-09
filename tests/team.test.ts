@@ -11,6 +11,7 @@ import {
   applyMessage,
   assignTask,
   boardRows,
+  isTeamMessage,
   joinTeam,
   listTasks,
   messageOf,
@@ -128,6 +129,34 @@ test('the task list: created, updated, owned, deleted, and replaced by a TaskLis
   ])
   expect(ts.map(t => `${t.id}:${t.status}:${t.subject}`)).toEqual(['1:completed:probe task one', '9:pending:from a pane'])
   expect(listTasks(ts, 'not a list')).toEqual([])
+})
+
+test('a plan answer wakes its teammate; only the team\'s traffic is the team\'s', () => {
+  let t = joinTeam(EMPTY, { id: 'critic@x', teammateId: 'critic@x', model: '' }, 0)
+  t = joinTeam(t, { id: 'a2', teammateId: 'scout@x', model: '' }, 0)
+  t = setState(t, 'critic@x', 'idle', 5)
+  t = applyMessage(t, messageOf({ to: 'critic', message: { type: 'plan_approval_response', request_id: 'p', approve: true } }, LEAD, 10)!)
+  expect(t.members[0]?.state).toBe('working')
+  const msg = (from: string, to: string) => messageOf({ to, message: 'x' }, from, 1)!
+  expect(isTeamMessage(t, msg(LEAD, 'critic'))).toBe(true)
+  expect(isTeamMessage(t, msg('critic', 'main'))).toBe(true) // SendMessage also takes main for the lead
+  expect(isTeamMessage(t, msg('critic', 'scout'))).toBe(true)
+  expect(isTeamMessage(t, msg('critic', 'other-session'))).toBe(false)
+  expect(isTeamMessage(t, msg(LEAD, 'other-session'))).toBe(false)
+  expect(isTeamMessage(t, msg('agent', 'critic'))).toBe(false) // a subagent outside the team
+})
+
+test('a long task list drops the oldest done first, so work in progress stays', () => {
+  const listed = [
+    ...Array.from({ length: 5 }, (_, i) => ({ id: `a${i}`, subject: 'active', status: 'in_progress' })),
+    ...Array.from({ length: 205 }, (_, i) => ({ id: `d${i}`, subject: 'done', status: 'completed' })),
+    { id: 'p1', subject: 'waiting', status: 'pending' },
+  ]
+  const ts = listTasks([], listed)
+  expect(ts.length).toBe(200)
+  expect(ts.filter(t => t.status === 'in_progress').length).toBe(5)
+  expect(ts.at(-1)?.id).toBe('p1')
+  expect(ts.find(t => t.id === 'd0')).toBeUndefined() // the oldest done went first
 })
 
 test('the board shows work in progress first, then what waits, then the newest done', () => {
@@ -263,6 +292,18 @@ test('a pane teammate\'s JSON words are a message; a plan request shows; the mai
   ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
   expect(await ui.find({ text: /^■ $/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('the inline summary leaves the team out when the panels option does', { options: { language: 'en', openOnStart: false, panels: 'main,agents,log' } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await spawnTeammate($, 'scout')
+  for (const d of ['one', 'two', 'three']) await $.agent.spawn({ prompt: 'p', description: d, subagentType: 'Explore', model: 'claude-haiku-5-5', tool_use_id: `tu-${d}`, provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false } as never)
+  const p = pane(80)
+  const inline = await $.ui.mount({ ...p, props: { ...p.props, placement: 'inline' as const }, surface: 'terminal' })
+  expect(await inline.find({ text: /^team $/ })).toBeUndefined()
+  expect(await inline.find({ text: /more agents/ })).toBeUndefined() // all three agents keep their rows
+  await inline.unmount()
 })
 
 test('a message to another session is not the team\'s', { options: { language: 'en', openOnStart: false } }, async ($, on) => {

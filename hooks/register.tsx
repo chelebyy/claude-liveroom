@@ -477,6 +477,7 @@ export const register: Register = (on, options) => {
     // A teammate waits between turns rather than finishing: it joins the team panel, not the cards.
     if (e.isTeammate && started.teammateId) {
       await joinTeammate($, id, started.teammateId, started.model ?? '')
+      await update($, loops, l => listOf<Loop>(l).filter(x => x.id !== id)) // a first step that came before the spawn's answer
       await refreshStatus($, cfg)
       return started
     }
@@ -1071,7 +1072,7 @@ export const register: Register = (on, options) => {
 
     // Inline above the prompt (the terminal's main screen), the pane is a summary of at most 8 rows.
     const isMini = layout === 'mini' || (layout === 'auto' && e.props.placement === 'inline')
-    const crew = room.team.members.filter(m => m.state !== 'ended').slice(-8)
+    const crew = panels.includes('team') ? room.team.members.filter(m => m.state !== 'ended').slice(-8) : []
     if (isMini) {
       const live = [...cards.filter(c => c.status === 'running'), ...cards.filter(c => c.status !== 'running').reverse()].slice(0, crew.length > 0 ? 2 : 3) // a team's row takes one of the three
       const wordy = tx(' {allowed} allowed · {cleared} {decider}{pending} · {denied} denied', { allowed: s.rule, cleared: s.cleared, decider, pending: s.ask > 0 ? tx(' · {n} pending', { n: s.ask }) : '', denied: s.deny })

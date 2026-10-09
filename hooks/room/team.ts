@@ -14,9 +14,12 @@ export type { MemberState, Team, TeamMember, TeamMessage, TeamTask }
 /** The lead's name in its team, as messages to and from the main conversation spell it. */
 export const LEAD = 'team-lead'
 
+/** Whether a name is the lead's: its name in the team, or `main`, which SendMessage also takes. */
+export const isLead = (name: string) => name === LEAD || name === 'main'
+
 const MEMBERS = 24
 const MESSAGES = 20
-const TASKS = 50
+const TASKS = 200
 
 const listOf = <T>(x: unknown): T[] => (Array.isArray(x) ? (x as T[]) : [])
 const str = (x: unknown): string | null => (typeof x === 'string' ? x : null)
@@ -99,9 +102,14 @@ const PROTOCOL: Readonly<Record<string, TeamMessage['kind']>> = {
 /** The mailbox's own notices (Claude Code 2.1.295's schema), which are never a model's words. */
 const NOTICES = new Set(['idle_notification', 'task_assignment', 'task_completed', 'teammate_terminated'])
 
-/** Whether a message is the team's: from or to one of its members, not another session's traffic. */
-export const isTeamMessage = (team: Team, msg: TeamMessage) =>
-  team.members.some(m => m.name === msg.from || m.name === msg.to || m.id === msg.to)
+/**
+ * Whether a message is the team's: between the lead and a member, or between two members. A member's
+ * message to another session is not.
+ */
+export function isTeamMessage(team: Team, msg: TeamMessage): boolean {
+  const isMember = (x: string) => team.members.some(m => m.name === x || m.id === x)
+  return (isMember(msg.from) || isMember(msg.to)) && (isMember(msg.from) || isLead(msg.from)) && (isMember(msg.to) || isLead(msg.to))
+}
 
 /**
  * A message joins the newest 20 and counts toward its sender. A text message wakes the teammate it
@@ -115,8 +123,10 @@ export function applyMessage(team: Team, msg: TeamMessage): Team {
     members: team.members.map(m => (m === sender ? { ...m, sent: m.sent + 1 } : m)),
     messages: [...team.messages, msg].slice(-MESSAGES),
   }
+  // A plan answer wakes its teammate too: approved, it implements; refused, it plans again.
   const isRevived = to?.state === 'ended' && !to.isPane
-  if (msg.kind === 'text' && to && to.state !== 'working' && (to.state !== 'ended' || isRevived)) next = reopen(next, to.id, msg.at)
+  const wakes = msg.kind === 'text' || msg.kind === 'plan-response'
+  if (wakes && to && to.state !== 'working' && (to.state !== 'ended' || isRevived)) next = reopen(next, to.id, msg.at)
   if (msg.kind === 'shutdown-response' && msg.approve === true && sender) next = setState(next, sender.id, 'ended', msg.at)
   return next
 }
@@ -179,9 +189,16 @@ export function tasksOf(x: unknown): TeamTask[] {
   )
 }
 
+/** The list kept to 200 tasks: the oldest done go first, so work in progress or waiting stays. */
+function bound(tasks: readonly TeamTask[]): TeamTask[] {
+  let extra = tasks.length - TASKS
+  if (extra <= 0) return [...tasks]
+  return tasks.filter(t => !(t.status === 'completed' && extra-- > 0)).slice(-TASKS)
+}
+
 const upsert = (tasks: readonly TeamTask[], task: TeamTask) => {
   const at = tasks.findIndex(t => t.id === task.id)
-  return (at === -1 ? [...tasks, task] : tasks.map((t, i) => (i === at ? task : t))).slice(-TASKS)
+  return bound(at === -1 ? [...tasks, task] : tasks.map((t, i) => (i === at ? task : t)))
 }
 
 /** TaskCreate's answer: a new pending task. */
@@ -209,7 +226,7 @@ export function updateTask(tasks: readonly TeamTask[], input: { taskId?: unknown
 
 /** A TaskList answer is the whole list: it replaces what the pane pieced together, keeping known subjects. */
 export function listTasks(tasks: readonly TeamTask[], listed: unknown): TeamTask[] {
-  return tasksOf(listed).map(t => ({ ...t, subject: t.subject || tasks.find(x => x.id === t.id)?.subject || '' })).slice(-TASKS)
+  return bound(tasksOf(listed).map(t => ({ ...t, subject: t.subject || tasks.find(x => x.id === t.id)?.subject || '' })))
 }
 
 /** A task assigned to a member, as its assignment notice says. */
