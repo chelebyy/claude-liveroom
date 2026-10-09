@@ -63,7 +63,7 @@ import type { LanguageOption, T } from './room/i18n'
 import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
-import { LEAD, addTask, applyMessage, assignTask, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
+import { LEAD, addTask, applyMessage, assignTask, joinTeam, jsonOf, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -332,7 +332,7 @@ export const register: Register = (on, options) => {
       return yield* next(e)
     }
     // A teammate's first step starts its turn: it works until the turn ends.
-    if (await teamStep($, e.agentId, e.index)) return yield* next(e)
+    if (await teamStep($, cfg, e.agentId, e.index)) return yield* next(e)
     const result = yield* next(e)
     const id = e.agentId
     const [cards, a] = await Promise.all([getCards($), getArchitect($)])
@@ -1273,7 +1273,7 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'SendMessage' }, async ($, e, next) => {
     const ran = await next(e)
     const result = ran.result as { success?: unknown } | null | undefined
-    if (ran.deny === undefined && ran.isError !== true && result?.success !== false) await noteMessage($, e)
+    if (ran.deny === undefined && ran.isError !== true && result?.success !== false) await noteMessage($, cfg, e)
     return ran
   })
 
@@ -1375,8 +1375,8 @@ async function resetRoom($: EngineInterface) {
   await update($, skills, () => ({}))
   await update($, plugins, () => ({}))
   await update($, rules, () => ({}))
-  await update($, team, () => ({ members: [], messages: [] }))
-  await update($, tasks, () => [])
+  // `/clear` clears the lead's conversation, not its teammates: the live ones stay, with the task list.
+  await update($, team, t => ({ members: teamOf(t).members.filter(m => m.state !== 'ended'), messages: [] }))
 }
 
 /** A teammate joins the team panel, working on the prompt it was spawned with. */
@@ -1386,12 +1386,17 @@ async function joinTeammate($: EngineInterface, id: string, teammateId: string, 
   await say($, await whoIs($, id), tx('joined the team'), 'info', id)
 }
 
-/** A teammate's step: its first starts a turn, so it works. False for any other loop. */
-async function teamStep($: EngineInterface, id: string, index: number): Promise<boolean> {
-  if (!memberOf(teamOf(await read($, team)), id)) return false
-  if (index === 0) {
+/**
+ * A teammate's step: its first starts a turn, so it works, even after it stopped, as a message
+ * brings an in-process teammate back. False for any other loop.
+ */
+async function teamStep($: EngineInterface, cfg: Config, id: string, index: number): Promise<boolean> {
+  const member = memberOf(teamOf(await read($, team)), id)
+  if (!member) return false
+  if (index === 0 && member.state !== 'working') {
     const at = await $.clock.now()
-    await update($, team, t => setState(teamOf(t), id, 'working', at))
+    await update($, team, t => reopen(teamOf(t), id, at))
+    await refreshStatus($, cfg)
   }
   return true
 }
@@ -1409,17 +1414,17 @@ async function endTeamTurn($: EngineInterface, id: string, reason: string): Prom
   return true
 }
 
-/** Whether an agent is still on the session's list; true when the list can't be read. */
+/** Whether an agent is still running or waiting on the session's list; true when the list can't be read. */
 async function isListed($: EngineInterface, id: string): Promise<boolean> {
   try {
-    return (await $.agent.list()).some(a => a.id === id)
+    return (await $.agent.list()).some(a => a.id === id && a.status !== 'completed' && a.status !== 'failed' && a.status !== 'killed')
   } catch {
     return true
   }
 }
 
 /** A SendMessage that went out: from the lead, a teammate, or another agent of the session. */
-async function noteMessage($: EngineInterface, e: { agentId?: string; to?: unknown; message?: unknown; summary?: unknown }) {
+async function noteMessage($: EngineInterface, cfg: Config, e: { agentId?: string; to?: unknown; message?: unknown; summary?: unknown }) {
   const was = teamOf(await read($, team))
   const from = e.agentId ? (memberOf(was, e.agentId)?.name ?? 'agent') : LEAD
   const msg = messageOf(e, from, await $.clock.now())
@@ -1427,6 +1432,7 @@ async function noteMessage($: EngineInterface, e: { agentId?: string; to?: unkno
   await update($, team, t => applyMessage(teamOf(t), msg))
   const sender = memberNamed(was, from)
   if (msg.kind === 'shutdown-response' && msg.approve === true && sender) await say($, shorten(sender.name, 14), tx('shut down'), 'info', sender.id)
+  await refreshStatus($, cfg) // a message may wake a teammate or end one
 }
 
 /**
@@ -1438,28 +1444,23 @@ async function noteDelivery($: EngineInterface, sender: string, isVerified: bool
   const at = await $.clock.now()
   const was = teamOf(await read($, team))
   const notice = noticeOf(text, sender)
+  const member = memberNamed(was, notice && notice.kind !== 'assigned' ? notice.from : sender)
+  // A message the harness here didn't write is a pane teammate's, which no tool call showed: its
+  // words, or a protocol answer (shutdown, plan). Any other JSON is the harness's own notice.
+  const protocol = protocolOf(text)
+  if (!isVerified && (protocol || !jsonOf(text))) {
+    const msg = messageOf({ to: to ? (memberOf(was, to)?.name ?? 'agent') : LEAD, message: protocol ?? text }, sender, at)
+    // A pane teammate that writes words is in a turn.
+    if (msg) await update($, team, t => (msg.kind === 'text' && member ? reopen(applyMessage(teamOf(t), msg), member.id, at) : applyMessage(teamOf(t), msg)))
+  }
   if (notice?.kind === 'assigned') {
     const owner = to ? memberOf(was, to)?.name : LEAD
     if (owner) await update($, tasks, ts => assignTask(tasksOf(ts), notice.taskId, notice.subject, owner))
-    return false
-  }
-  if (notice) {
-    const member = memberNamed(was, notice.from)
-    if (!member) return false
-    await update($, team, t => setState(teamOf(t), member.id, notice.kind === 'idle' ? 'idle' : 'ended', at))
+  } else if (notice && member) {
+    await update($, team, t => setState(teamOf(t), member.id, notice.kind, at))
     if (notice.kind === 'ended' && member.state !== 'ended') await say($, shorten(member.name, 14), tx('shut down'), 'info', member.id)
-    return true
   }
-  if (isVerified) return false // an in-process sender: its SendMessage call was counted
-  const msg = messageOf({ to: to ? (memberOf(was, to)?.name ?? 'agent') : LEAD, message: text }, sender, at)
-  const member = memberNamed(was, sender)
-  if (!msg) return false
-  // A pane teammate that sends is in a turn.
-  await update($, team, t => {
-    const next = applyMessage(teamOf(t), msg)
-    return member ? setState(next, member.id, 'working', at) : next
-  })
-  return Boolean(member)
+  return Boolean(member) && (Boolean(notice) || !isVerified)
 }
 
 /** A Codex run ends with its call: failed when refused, errored or thrown (`ran` null). */

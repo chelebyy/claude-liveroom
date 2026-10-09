@@ -82,7 +82,7 @@ Connectors animate only while work flows: a turn is running, an agent is running
 | --- | --- |
 | `/liveroom` | open the pane |
 | `/liveroom close` | close it |
-| `/liveroom reset` | clear agents, checks, consults, log and the turn (cost, rate limits and compactions stay) |
+| `/liveroom reset` | clear agents, checks, consults, log and the turn (cost, rate limits and compactions stay; so do teammates still running and the task list) |
 | `/liveroom layout auto\|compact\|wide\|mini` | override the layout for this session |
 
 Focus the pane with `ctrl+x tab`, then:
@@ -92,7 +92,7 @@ Focus the pane with `ctrl+x tab`, then:
 | `1`, `2`, … | expand an agent card or lane: its full task, last 3 tool calls, start of its answer |
 | `f` `s` `o` | open the gate's file / shell / other drill-down: the last 5 checks and their verdicts (`d` `k` `b` in Turkish: dosya / kabuk / başka) |
 
-`/clear` resets the pane along with the conversation.
+`/clear` resets the pane along with the conversation. It clears only the lead's conversation, so teammates still running and the task list stay; the team's messages and teammates that shut down go.
 
 ## Where it runs
 
@@ -131,8 +131,8 @@ What it keeps: short summaries (a tool name plus a path or command, a message's 
 - **Codex runs end with what the pane can see.** A `codex:codex-rescue` run ends when the rescue subagent finishes, even if that agent left Codex working in the background. A `codex exec` in a background shell ends when Claude Code's task notification for it arrives. One sent off with `&` on its own line outlives its shell, so no event says when it ends: it shows `◌ bg` and is counted apart from the running ones. A shell's exit status is its last command's, so a codex followed by another command (`| tail`, `; echo`) ends as `■`, without a verdict. So does a codex behind `||` whose line succeeded: the success could be the command before it, which kept codex from running. Behind `&&`, a failure counts as codex's, since the step before it (`cd repo`) nearly always succeeds. Lines inside a here-document are data and never count as calls.
 - **The shell reader is a heuristic, not a shell.** It reads quotes, here-documents, redirections, `&` lists, `wait`, line continuations, shell keywords (`if codex …`, `do codex …`) and common wrappers (`env`, `timeout`, `nohup`, `sudo`, `nice`). `wait` with a job id counts as waiting for codex, whichever job it names. It does not look inside `bash -c "…"`, `$(…)`, subshells `( … )` or `xargs`, and a comment after a codex call counts as a command, so that run ends as `■`.
 - **A rescue's model and effort** are read from `--model` and `--effort` anywhere in its prompt, because the codex-rescue agent treats them as runtime controls wherever they appear. A task that mentions those flags in prose is read the same way.
-- **A teammate's state is read from its turns and messages.** It works from its first step until its turn ends, then waits; a message sent to a waiting teammate marks it working before its next turn starts. `$.agent.list()` says only whether a teammate is still there, since it reads `running` between turns: one whose turn was cut short and that left the list (stopped without the shutdown handshake) shows ■, while one still on it was interrupted and waits.
-- **Teammates in panes of their own** (`teammateMode` `tmux`, or `auto` inside tmux) run outside this process, so their turns and tool calls raise no events here. The pane reads them from what reaches the lead: a message from one means it is working, its idle notice that it waits, its shutdown notice that it is gone. Their task changes show when the lead lists the tasks, and messages between two such teammates don't show. One whose pane closes or dies without a notice keeps its last state. This was checked live with in-process teammates only.
+- **A teammate's state is read from its turns and messages.** It works from its first step until its turn ends, then waits; a message sent to a waiting teammate marks it working before its next turn starts. `$.agent.list()` says only whether a teammate is still there, since it reads `running` between turns: one whose turn was cut short and that left the list or is listed as stopped (stopped without the shutdown handshake) shows ■, while one still running on it was interrupted and waits. A message or a turn of its own brings back an in-process teammate that stopped, as Claude Code does. Messages another plugin sends with `$.session.send` don't show: only SendMessage calls and mailbox deliveries do.
+- **Teammates in panes of their own** (`teammateMode` `tmux`, or `auto` inside tmux) run outside this process, so their turns and tool calls raise no events here. The pane reads them from what reaches the lead: a message from one means it is working, its idle notice that it waits (or failed, when its turn ended on an API error), its shutdown answer that it is gone; its plan and shutdown answers show as answers. Their task changes show when the lead lists the tasks, and messages between two such teammates don't show. One whose pane closes or dies without a notice keeps its last state. This was checked live with in-process teammates only.
 - **The delegation rule sees the call, not the agent definition.** ⚠ means the spawn named no model and the agent runs on the main model, or, for a subagent's own spawn, on its parent's. That holds even when the definition picked that same model itself. Turn it off with `delegationRule: false`.
 
 ## Configure
@@ -178,7 +178,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | [`hooks/rail.tsx`](hooks/rail.tsx), [`hooks/elapsed.tsx`](hooks/elapsed.tsx) | surface modules: animated connectors and live clocks that redraw only themselves, on the surface's own frame clock |
 | [`types/index.d.ts`](types/index.d.ts) | the state contract |
 | [`hooks/room/`](hooks/room) | Liveroom's additions: Codex call parsing, tallies, the agent team and its task list, the models, codex, skills, team and tasks panels, and the Turkish table, as pure functions |
-| [`tests/`](tests) | 91 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
+| [`tests/`](tests) | 94 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
 
 State lives in `$.state` atoms. Every read is merged over defaults, so a missing or older field never breaks the pane; an update that changes the state's shape may still reset its counters once. New to mods? Start with [Claude Code mods](https://claude.com/blog/claude-code-mods) and [Getting started with Claude Code mods](https://claude.dev/blog/getting-started-with-claude-code-mods/).
 

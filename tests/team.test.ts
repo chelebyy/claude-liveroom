@@ -15,6 +15,8 @@ import {
   listTasks,
   messageOf,
   noticeOf,
+  protocolOf,
+  reopen,
   setState,
   taskOf,
   turnEndState,
@@ -74,6 +76,9 @@ test('a message counts toward its sender, wakes a waiting teammate, and an appro
 
 test('mailbox notices: idle, shutdown and task assignment; a model\'s own words are not one', () => {
   expect(noticeOf('{"type":"idle_notification","from":"scout","timestamp":"t"}', 'x')).toEqual({ kind: 'idle', from: 'scout' })
+  // A turn that ended on an API error says so; an interrupted one waits like any other.
+  expect(noticeOf('{"type":"idle_notification","from":"scout","idleReason":"failed"}', 'x')).toEqual({ kind: 'failed', from: 'scout' })
+  expect(noticeOf('{"type":"idle_notification","from":"scout","idleReason":"interrupted"}', 'x')).toEqual({ kind: 'idle', from: 'scout' })
   expect(noticeOf('{"type":"shutdown_approved"}', 'scout')).toEqual({ kind: 'ended', from: 'scout' })
   expect(noticeOf('{"type":"shutdown_response","approve":true}', 'scout')).toEqual({ kind: 'ended', from: 'scout' })
   expect(noticeOf('{"type":"shutdown_response","approve":false}', 'scout')).toBeNull()
@@ -81,6 +86,25 @@ test('mailbox notices: idle, shutdown and task assignment; a model\'s own words 
   expect(noticeOf('hello from scout', 'scout')).toBeNull()
   expect(noticeOf('{"not json', 'scout')).toBeNull()
   expect(noticeOf('{"note":"a model wrote JSON"}', 'scout')).toBeNull()
+  // A protocol message is read as SendMessage takes it; a notice or words are not one.
+  expect(protocolOf('{"type":"plan_approval_response","request_id":"r","approve":true}')).toEqual({ type: 'plan_approval_response', request_id: 'r', approve: true })
+  expect(protocolOf('{"type":"idle_notification","from":"scout"}')).toBeNull()
+  expect(protocolOf('hello')).toBeNull()
+})
+
+test('a message brings back a teammate whose turn failed, or an in-process one that stopped, not a pane one', () => {
+  let t = joinTeam(EMPTY, { id: 'a1', teammateId: 'scout@x', model: '' }, 0)
+  t = joinTeam(t, { id: 'critic@x', teammateId: 'critic@x', model: '' }, 0)
+  t = setState(setState(t, 'a1', 'ended', 5), 'critic@x', 'ended', 5)
+  t = applyMessage(t, messageOf({ to: 'scout', message: 'one more thing' }, LEAD, 10)!)
+  t = applyMessage(t, messageOf({ to: 'critic', message: 'one more thing' }, LEAD, 10)!)
+  expect(t.members.map(m => m.state)).toEqual(['working', 'ended'])
+  t = setState(t, 'a1', 'failed', 20)
+  t = applyMessage(t, messageOf({ to: 'scout', message: 'retry' }, LEAD, 30)!)
+  expect(t.members[0]?.state).toBe('working')
+  // A step of its own reopens a teammate the pane had marked shut down.
+  t = setState(t, 'a1', 'ended', 40)
+  expect(reopen(t, 'a1', 50).members[0]).toMatchObject({ state: 'working', since: 50 })
 })
 
 test('the task list: created, updated, owned, deleted, and replaced by a TaskList answer', () => {
@@ -198,6 +222,51 @@ test('a teammate joins the team panel, not the agent cards, and waits between tu
   expect(await ui.find({ text: /^next task$/ })).toBeDefined()
   expect(await ui.find({ text: /^1 working · 0 idle$/ })).toBeDefined()
   await ui.unmount()
+  expect(statuses.at(-1)).toContain('team 1/1') // the status line follows the wake
+})
+
+test('a pane teammate\'s protocol answers show as answers; a failed idle notice marks it failed', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await spawnTeammate($, 'critic')
+  const from = { kind: 'peer', teammate: 'critic', isVerified: false }
+  await $.session.receive({ origin: from, text: '{"type":"plan_approval_response","request_id":"p1","approve":true}' } as never)
+  await $.session.receive({ origin: from, text: '{"type":"shutdown_response","request_id":"s1","approve":false,"reason":"still busy"}' } as never)
+  await $.session.receive({ origin: from, text: '{"type":"idle_notification","from":"critic","idleReason":"failed"}' } as never)
+  let ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^plan ✓$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^shutdown ✗$/ })).toBeDefined()
+  expect(await ui.find({ text: /idle_notification|request_id/ })).toBeUndefined() // no raw JSON
+  expect(await ui.find({ text: /^✗ $/ })).toBeDefined()
+  await ui.unmount()
+  await $.session.receive({ origin: from, text: '{"type":"shutdown_response","request_id":"s2","approve":true}' } as never)
+  ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^shutdown ✓$/ })).toBeDefined()
+  expect(await ui.find({ text: /^■ $/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('/clear keeps the teammates still running and the task list; it drops the messages and those that shut down', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+  await $.session.start(START)
+  await spawnTeammate($, 'scout')
+  await spawnTeammate($, 'critic')
+  await $.tool.call({ tool: 'TaskCreate', subject: 'keep me', description: 'd', tool_use_id: 'k1' } as never)
+  await $.tool.call({ tool: 'SendMessage', to: 'scout', message: 'hello there', tool_use_id: 'm1' } as never)
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'critic', isVerified: false }, text: '{"type":"shutdown_approved"}' } as never)
+  await $.session.end({ reason: 'clear', sessionId: 's' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^scout *$/ })).toBeDefined()
+  expect(await ui.find({ text: /^critic/ })).toBeUndefined()
+  expect(await ui.find({ text: /hello there/ })).toBeUndefined()
+  expect(await ui.find({ text: /^keep me$/ })).toBeDefined()
+  await ui.unmount()
+  // Its next turn still reaches the team panel, not other loops.
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'T9', agentId: 'tm-scout', reason: 'answer' } as never)
+  const after = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await after.find({ text: /^0 working · 1 idle$/ })).toBeDefined()
+  await after.unmount()
 })
 
 test('a pane teammate: its messages and idle notice arrive by mailbox; a shutdown notice ends it', { options: { language: 'en', openOnStart: false } }, async ($, on) => {

@@ -44,12 +44,23 @@ export const memberOf = (team: Team, id: string | undefined) => (id ? team.membe
 export const memberNamed = (team: Team, name: string) =>
   [...team.members].reverse().find(m => m.name === name && m.state !== 'ended') ?? [...team.members].reverse().find(m => m.name === name)
 
-/** A member's state changes; one that ended stays ended, and an unchanged state keeps its clock. */
+/**
+ * A member's state changes; one that ended stays ended, as a notice can arrive after its shutdown,
+ * and an unchanged state keeps its clock.
+ */
 export function setState(team: Team, id: string, state: MemberState, at: number): Team {
   return {
     ...team,
     members: team.members.map(m => (m.id === id && m.state !== 'ended' && m.state !== state ? { ...m, state, since: at } : m)),
   }
+}
+
+/**
+ * A member seen working: a step of its own, or a message that brings it back. Claude Code revives an
+ * in-process teammate that a message reaches after it stopped, so this reopens one that ended.
+ */
+export function reopen(team: Team, id: string, at: number): Team {
+  return { ...team, members: team.members.map(m => (m.id === id && m.state !== 'working' ? { ...m, state: 'working', since: at } : m)) }
 }
 
 /** How a member's turn ending leaves it: waiting for a message, or failed on an error. */
@@ -75,7 +86,8 @@ export function messageOf(input: { to?: unknown; message?: unknown; summary?: un
 
 /**
  * A message joins the newest 20 and counts toward its sender. A text message wakes the teammate it
- * reaches, which a pane's turns can't say themselves; an approved shutdown ends the one that sent it.
+ * reaches, which a pane's turns can't say themselves: one waiting, one whose turn failed, and an
+ * in-process one that stopped, which Claude Code brings back. An approved shutdown ends its sender.
  */
 export function applyMessage(team: Team, msg: TeamMessage): Team {
   const sender = memberNamed(team, msg.from)
@@ -84,14 +96,33 @@ export function applyMessage(team: Team, msg: TeamMessage): Team {
     members: team.members.map(m => (m === sender ? { ...m, sent: m.sent + 1 } : m)),
     messages: [...team.messages, msg].slice(-MESSAGES),
   }
-  if (msg.kind === 'text' && to?.state === 'idle') next = setState(next, to.id, 'working', msg.at)
+  const isRevived = to?.state === 'ended' && !to.isPane
+  if (msg.kind === 'text' && to && to.state !== 'working' && (to.state !== 'ended' || isRevived)) next = reopen(next, to.id, msg.at)
   if (msg.kind === 'shutdown-response' && msg.approve === true && sender) next = setState(next, sender.id, 'ended', msg.at)
   return next
+}
+
+/** A delivery's text as the JSON object the harness wrote, or null for words a model wrote. */
+export function jsonOf(text: string): Record<string, unknown> | null {
+  if (!text.trimStart().startsWith('{')) return null
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+/** A protocol message (shutdown request or answer, plan answer) in a delivery's text, as SendMessage takes it. */
+export function protocolOf(text: string): Record<string, unknown> | null {
+  const o = jsonOf(text)
+  return o && (o.type === 'shutdown_request' || o.type === 'shutdown_response' || o.type === 'plan_approval_response') ? o : null
 }
 
 /** A notice the team's harness writes into a mailbox, which the lead receives as text. */
 export type TeamNotice =
   | { kind: 'idle'; from: string }
+  | { kind: 'failed'; from: string }
   | { kind: 'ended'; from: string }
   | { kind: 'assigned'; taskId: string; subject: string }
 
@@ -100,17 +131,11 @@ export type TeamNotice =
  * the mailbox says sent it, for a notice that doesn't name itself.
  */
 export function noticeOf(text: string, sender: string | null): TeamNotice | null {
-  if (!text.trimStart().startsWith('{')) return null
-  let o: Record<string, unknown>
-  try {
-    const parsed: unknown = JSON.parse(text)
-    if (!parsed || typeof parsed !== 'object') return null
-    o = parsed as Record<string, unknown>
-  } catch {
-    return null
-  }
+  const o = jsonOf(text)
+  if (!o) return null
   const from = str(o.from) ?? sender
-  if (o.type === 'idle_notification' && from) return { kind: 'idle', from }
+  // A turn that ended on an API error says so: `idleReason` is `available`, `interrupted` or `failed`.
+  if (o.type === 'idle_notification' && from) return { kind: o.idleReason === 'failed' ? 'failed' : 'idle', from }
   if ((o.type === 'shutdown_approved' || (o.type === 'shutdown_response' && o.approve === true)) && from) return { kind: 'ended', from }
   const taskId = str(o.taskId)
   if (o.type === 'task_assignment' && taskId) return { kind: 'assigned', taskId, subject: str(o.subject) ?? '' }
