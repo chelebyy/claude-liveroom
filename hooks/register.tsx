@@ -63,7 +63,7 @@ import type { LanguageOption, T } from './room/i18n'
 import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
-import { LEAD, addTask, applyMessage, assignTask, joinTeam, jsonOf, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
+import { LEAD, addTask, applyMessage, assignTask, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -1374,9 +1374,13 @@ async function resetRoom($: EngineInterface) {
   await update($, steps, () => ({}))
   await update($, skills, () => ({}))
   await update($, plugins, () => ({}))
-  await update($, rules, () => ({}))
-  // `/clear` clears the lead's conversation, not its teammates: the live ones stay, with the task list.
-  await update($, team, t => ({ members: teamOf(t).members.filter(m => m.state !== 'ended'), messages: [] }))
+  // `/clear` clears the lead's conversation, not its teammates: they stay, with their delegation
+  // notes and the task list. Only a pane teammate that shut down goes; an in-process one can be
+  // brought back by a message.
+  const kept = teamOf(await read($, team)).members.filter(m => !(m.state === 'ended' && m.isPane))
+  const ids = new Set(kept.map(m => m.id))
+  await update($, rules, r => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([id]) => ids.has(id))))
+  await update($, team, () => ({ members: kept, messages: [] }))
 }
 
 /** A teammate joins the team panel, working on the prompt it was spawned with. */
@@ -1428,7 +1432,7 @@ async function noteMessage($: EngineInterface, cfg: Config, e: { agentId?: strin
   const was = teamOf(await read($, team))
   const from = e.agentId ? (memberOf(was, e.agentId)?.name ?? 'agent') : LEAD
   const msg = messageOf(e, from, await $.clock.now())
-  if (!msg) return
+  if (!msg || !isTeamMessage(was, msg)) return // another session's traffic
   await update($, team, t => applyMessage(teamOf(t), msg))
   const sender = memberNamed(was, from)
   if (msg.kind === 'shutdown-response' && msg.approve === true && sender) await say($, shorten(sender.name, 14), tx('shut down'), 'info', sender.id)
@@ -1446,12 +1450,13 @@ async function noteDelivery($: EngineInterface, sender: string, isVerified: bool
   const notice = noticeOf(text, sender)
   const member = memberNamed(was, notice && notice.kind !== 'assigned' ? notice.from : sender)
   // A message the harness here didn't write is a pane teammate's, which no tool call showed: its
-  // words, or a protocol answer (shutdown, plan). Any other JSON is the harness's own notice.
-  const protocol = protocolOf(text)
-  if (!isVerified && (protocol || !jsonOf(text))) {
-    const msg = messageOf({ to: to ? (memberOf(was, to)?.name ?? 'agent') : LEAD, message: protocol ?? text }, sender, at)
+  // words (JSON included), or a protocol request or answer. The mailbox's own notices are not one.
+  if (!isVerified && !isNotice(text)) {
+    const msg = messageOf({ to: to ? (memberOf(was, to)?.name ?? 'agent') : LEAD, message: protocolOf(text) ?? text }, sender, at)
     // A pane teammate that writes words is in a turn.
-    if (msg) await update($, team, t => (msg.kind === 'text' && member ? reopen(applyMessage(teamOf(t), msg), member.id, at) : applyMessage(teamOf(t), msg)))
+    if (msg && isTeamMessage(was, msg)) {
+      await update($, team, t => (msg.kind === 'text' && member ? reopen(applyMessage(teamOf(t), msg), member.id, at) : applyMessage(teamOf(t), msg)))
+    }
   }
   if (notice?.kind === 'assigned') {
     const owner = to ? memberOf(was, to)?.name : LEAD

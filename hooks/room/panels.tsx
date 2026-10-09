@@ -94,6 +94,7 @@ function messageText(msg: TeamMessage, t: T): string {
   const mark = msg.approve === true ? ' ✓' : msg.approve === false ? ' ✗' : ''
   if (msg.kind === 'shutdown-request') return t('shutdown?')
   if (msg.kind === 'shutdown-response') return `${t('shutdown')}${mark}`
+  if (msg.kind === 'plan-request') return t('plan?')
   if (msg.kind === 'plan-response') return `${t('plan')}${mark}`
   return msg.text
 }

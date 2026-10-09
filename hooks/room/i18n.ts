@@ -29,6 +29,7 @@ export const TR = {
   'shutdown?': 'kapanış?',
   shutdown: 'kapanış',
   plan: 'plan',
+  'plan?': 'plan?',
   'joined the team': 'takıma katıldı',
   'shut down': 'kapandı',
   team: 'takım',

@@ -149,7 +149,7 @@ export type TeamMessage = {
   at: number
   from: string
   to: string
-  kind: 'text' | 'shutdown-request' | 'shutdown-response' | 'plan-response'
+  kind: 'text' | 'shutdown-request' | 'shutdown-response' | 'plan-request' | 'plan-response'
   text: string
   approve: boolean | null
 }

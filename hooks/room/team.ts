@@ -80,9 +80,28 @@ export function messageOf(input: { to?: unknown; message?: unknown; summary?: un
   }
   if (!m || typeof m !== 'object') return null
   const { type, approve } = m as { type?: unknown; approve?: unknown }
-  const kind = type === 'shutdown_request' ? 'shutdown-request' : type === 'shutdown_response' ? 'shutdown-response' : type === 'plan_approval_response' ? 'plan-response' : null
-  return kind ? { at, from, to, kind, text: '', approve: typeof approve === 'boolean' ? approve : null } : null
+  const kind = typeof type === 'string' ? PROTOCOL[type] : undefined
+  // A mailbox spells a shutdown answer as approved or rejected; SendMessage takes it with `approve`.
+  const answer = type === 'shutdown_approved' ? true : type === 'shutdown_rejected' ? false : typeof approve === 'boolean' ? approve : null
+  return kind ? { at, from, to, kind, text: '', approve: answer } : null
 }
+
+/** The protocol messages a team sends, as SendMessage takes them and as the mailbox spells them. */
+const PROTOCOL: Readonly<Record<string, TeamMessage['kind']>> = {
+  shutdown_request: 'shutdown-request',
+  shutdown_response: 'shutdown-response',
+  shutdown_approved: 'shutdown-response',
+  shutdown_rejected: 'shutdown-response',
+  plan_approval_request: 'plan-request',
+  plan_approval_response: 'plan-response',
+}
+
+/** The mailbox's own notices (Claude Code 2.1.295's schema), which are never a model's words. */
+const NOTICES = new Set(['idle_notification', 'task_assignment', 'task_completed', 'teammate_terminated'])
+
+/** Whether a message is the team's: from or to one of its members, not another session's traffic. */
+export const isTeamMessage = (team: Team, msg: TeamMessage) =>
+  team.members.some(m => m.name === msg.from || m.name === msg.to || m.id === msg.to)
 
 /**
  * A message joins the newest 20 and counts toward its sender. A text message wakes the teammate it
@@ -113,10 +132,16 @@ export function jsonOf(text: string): Record<string, unknown> | null {
   }
 }
 
-/** A protocol message (shutdown request or answer, plan answer) in a delivery's text, as SendMessage takes it. */
+/** A protocol message (a shutdown or plan request or answer) in a delivery's text. */
 export function protocolOf(text: string): Record<string, unknown> | null {
   const o = jsonOf(text)
-  return o && (o.type === 'shutdown_request' || o.type === 'shutdown_response' || o.type === 'plan_approval_response') ? o : null
+  return o && typeof o.type === 'string' && o.type in PROTOCOL ? o : null
+}
+
+/** Whether a delivery's text is one of the mailbox's own notices rather than a message. */
+export const isNotice = (text: string) => {
+  const type = jsonOf(text)?.type
+  return typeof type === 'string' && NOTICES.has(type)
 }
 
 /** A notice the team's harness writes into a mailbox, which the lead receives as text. */
@@ -136,7 +161,7 @@ export function noticeOf(text: string, sender: string | null): TeamNotice | null
   const from = str(o.from) ?? sender
   // A turn that ended on an API error says so: `idleReason` is `available`, `interrupted` or `failed`.
   if (o.type === 'idle_notification' && from) return { kind: o.idleReason === 'failed' ? 'failed' : 'idle', from }
-  if ((o.type === 'shutdown_approved' || (o.type === 'shutdown_response' && o.approve === true)) && from) return { kind: 'ended', from }
+  if ((o.type === 'shutdown_approved' || o.type === 'teammate_terminated' || (o.type === 'shutdown_response' && o.approve === true)) && from) return { kind: 'ended', from }
   const taskId = str(o.taskId)
   if (o.type === 'task_assignment' && taskId) return { kind: 'assigned', taskId, subject: str(o.subject) ?? '' }
   return null

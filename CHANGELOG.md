@@ -8,8 +8,9 @@
 - A teammate whose spawn names no model and runs on the lead's gets the delegation rule's ⚠ in the team panel and the summary, as an agent card did.
 - A teammate stopped without the shutdown handshake, whose turn is cut short and who has left the session's agent list or is listed as stopped, shows ■; one interrupted but still running waits. The status line follows a teammate waking or stopping.
 - A message or a turn of its own brings back an in-process teammate that stopped, as Claude Code revives it; an idle notice for a turn that ended on an API error marks the teammate failed.
-- `/clear` and `/liveroom reset` keep teammates still running and the task list, since `/clear` clears only the lead's conversation; the team's messages and teammates that shut down go.
-- Teammates in panes of their own run outside the lead's process. Their state is read from their messages and the team's idle and shutdown notices, and their plan and shutdown answers show as answers; see "What is inferred".
+- `/clear` and `/liveroom reset` keep teammates, their ⚠ and the task list, since `/clear` clears only the lead's conversation; the team's messages go, and so does a pane teammate that shut down.
+- Teammates in panes of their own run outside the lead's process. Their state is read from their messages and the team's idle, shutdown and termination notices; their plan requests and plan and shutdown answers show as such, and anything else they write, JSON included, as a message. See "What is inferred".
+- The team panel shows only the team's messages: SendMessage to another session stays out.
 - A message from another agent or session reaches the log as its tag and sender (`teammate message from scout`), not as your prompt: Claude Code now puts a note before it. A background architect's hand-back behind that note is read as its advice again.
 - The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.
 

@@ -231,11 +231,11 @@ test('a pane teammate\'s protocol answers show as answers; a failed idle notice 
   await spawnTeammate($, 'critic')
   const from = { kind: 'peer', teammate: 'critic', isVerified: false }
   await $.session.receive({ origin: from, text: '{"type":"plan_approval_response","request_id":"p1","approve":true}' } as never)
-  await $.session.receive({ origin: from, text: '{"type":"shutdown_response","request_id":"s1","approve":false,"reason":"still busy"}' } as never)
+  await $.session.receive({ origin: from, text: '{"type":"shutdown_rejected","requestId":"s1","from":"critic","reason":"still busy"}' } as never)
   await $.session.receive({ origin: from, text: '{"type":"idle_notification","from":"critic","idleReason":"failed"}' } as never)
   let ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^plan ✓$/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^shutdown ✗$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^shutdown ✗$/ })).toBeDefined() // the mailbox's spelling of a refusal
   expect(await ui.find({ text: /idle_notification|request_id/ })).toBeUndefined() // no raw JSON
   expect(await ui.find({ text: /^✗ $/ })).toBeDefined()
   await ui.unmount()
@@ -246,19 +246,54 @@ test('a pane teammate\'s protocol answers show as answers; a failed idle notice 
   await ui.unmount()
 })
 
-test('/clear keeps the teammates still running and the task list; it drops the messages and those that shut down', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+test('a pane teammate\'s JSON words are a message; a plan request shows; the mailbox\'s termination ends it', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await spawnTeammate($, 'critic')
+  const from = { kind: 'peer', teammate: 'critic', isVerified: false }
+  await $.session.receive({ origin: from, text: '{"file":"auth.ts","issue":"token leak"}' } as never)
+  await $.session.receive({ origin: from, text: '{"type":"plan_approval_request","requestId":"p1","from":"critic","planFilePath":"/p.md"}' } as never)
+  await $.session.receive({ origin: from, text: '{"type":"task_completed","taskId":"1","from":"critic"}' } as never)
+  let ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^\{"file":"auth.ts","issue":"token leak"\}$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^plan\?$/ })).toBeDefined()
+  expect(await ui.find({ text: /task_completed/ })).toBeUndefined() // the mailbox's own notice
+  await ui.unmount()
+  await $.session.receive({ origin: from, text: '{"type":"teammate_terminated","from":"critic"}' } as never)
+  ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+  expect(await ui.find({ text: /^■ $/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a message to another session is not the team\'s', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await spawnTeammate($, 'scout')
+  await $.tool.call({ tool: 'SendMessage', to: 'other-session', message: 'found it in auth', tool_use_id: 'x1' } as never)
+  await $.tool.call({ tool: 'SendMessage', to: 'scout', message: 'look at auth', tool_use_id: 'x2' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /found it in auth/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^look at auth$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('/clear keeps the teammates, their ⚠ and the task list; it drops the messages and pane teammates that shut down', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
   engine(on)
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   await $.session.start(START)
-  await spawnTeammate($, 'scout')
-  await spawnTeammate($, 'critic')
+  await spawnTeammate($, 'scout', null) // on the lead's model: ⚠
+  await spawnTeammate($, 'critic') // in a pane of its own
+  await spawnTeammate($, 'helper')
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'helper', isVerified: true }, text: '{"type":"shutdown_approved","from":"helper"}' } as never)
   await $.tool.call({ tool: 'TaskCreate', subject: 'keep me', description: 'd', tool_use_id: 'k1' } as never)
   await $.tool.call({ tool: 'SendMessage', to: 'scout', message: 'hello there', tool_use_id: 'm1' } as never)
   await $.session.receive({ origin: { kind: 'peer', teammate: 'critic', isVerified: false }, text: '{"type":"shutdown_approved"}' } as never)
   await $.session.end({ reason: 'clear', sessionId: 's' } as never)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /^scout *$/ })).toBeDefined()
-  expect(await ui.find({ text: /^critic/ })).toBeUndefined()
+  expect(await ui.find({ text: /^⚠ $/ })).toBeDefined() // its delegation note stays with it
+  expect(await ui.find({ text: /^critic/ })).toBeUndefined() // a pane teammate that shut down goes
+  expect(await ui.find({ type: 'Text', text: /^helper *$/ })).toBeDefined() // an in-process one can be brought back
   expect(await ui.find({ text: /hello there/ })).toBeUndefined()
   expect(await ui.find({ text: /^keep me$/ })).toBeDefined()
   await ui.unmount()
