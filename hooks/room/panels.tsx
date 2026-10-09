@@ -3,7 +3,7 @@
 import type { Elements } from 'claude-code'
 
 import type { Colors, Palette } from '../core'
-import { prettyModel } from '../core'
+import { prettyModel, shorten } from '../core'
 import type { CodexRun, RunStatus } from './core'
 import { meter, runGlyph, top } from './core'
 import type { RoomView } from './state'
@@ -109,6 +109,9 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
     const shown = room.codex.slice(-6)
     const warned = x.isRuleOn ? room.codex.filter(r => r.ruleNote).length : 0
     const isLive = (r: CodexRun) => r.status === 'running' || r.status === 'background'
+    // A long model id gives way, so the glyph and kind on the left always show: the row's inside
+    // width less the left side (glyph, kind, ⚠), the effort and the clock.
+    const modelWidth = (r: CodexRun) => Math.max(6, w - 4 - 12 - (r.effort ? r.effort.length + 4 : 1) - 8)
     return frame(
       RC.codex,
       'CODEX · hand-offs',
@@ -124,7 +127,7 @@ export function drawRoom(p: RoomPanel, w: number, x: RoomCtx): JSX.Element {
             <Box flexShrink={0}>
               <Text>
                 <Text color={isLive(r) ? C.text : C.dim} bold={r.status === 'running'}>
-                  {r.model ?? (r.kind === 'review' ? 'own model' : 'default')}
+                  {shorten(r.model ?? (r.kind === 'review' ? 'own model' : 'default'), modelWidth(r))}
                 </Text>
                 {r.effort ? <Text color={C.dim}>{` · ${r.effort} `}</Text> : <Text> </Text>}
               </Text>

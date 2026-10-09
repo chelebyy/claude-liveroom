@@ -132,12 +132,15 @@ const WRAPPERS = new Map<string, readonly string[]>([
 
 type Word = { word: string; isSep: boolean }
 
-/** Where the command that starts at `i` names its program: past `VAR=value` words and wrappers. */
+/** Shell keywords a command follows: `if codex …`, `then codex …`, `do codex …`. */
+const KEYWORDS = new Set(['if', 'then', 'elif', 'else', 'while', 'until', 'do', '!', '{'])
+
+/** Where the command that starts at `i` names its program: past `VAR=value` words, keywords and wrappers. */
 function commandAt(words: readonly Word[], i: number): number {
   let j = i
   while (j < words.length && !words[j]!.isSep) {
     const w = words[j]!.word
-    if (/^\w+=/.test(w)) {
+    if (/^\w+=/.test(w) || KEYWORDS.has(w)) {
       j++
       continue
     }

@@ -91,6 +91,11 @@ test('every codex call on a line is read, through wrappers and their options', (
   expect(parseCodexCli('timeout -s KILL 30 codex exec x')?.kind).toBe('exec')
   expect(parseCodexCli('timeout --signal=KILL -k 5 30 codex review')?.kind).toBe('review')
   expect(parseCodexCli('sudo -u bob nice -n 5 codex exec x')?.kind).toBe('exec')
+  // A command follows shell keywords: conditions and loop bodies.
+  expect(parseCodexCli('if codex exec -m gpt-6-luna x; then echo ok; fi')?.model).toBe('gpt-6-luna')
+  expect(parseCodexCalls('for f in a b; do codex review; done').map(c => c.kind)).toEqual(['review'])
+  expect(parseCodexCli('while true; do codex exec x; done')?.kind).toBe('exec')
+  expect(parseCodexCli('echo if codex exec x')).toBeNull()
   // The exit status is the call's own only when nothing runs after it.
   expect(parseCodexCli('codex exec x 2>&1 | tail -20')?.isExitShared).toBe(true)
   expect(parseCodexCli('codex exec x; echo done')?.isExitShared).toBe(true)
@@ -247,6 +252,18 @@ test('codex hand-offs draw with their model and status; a failed one is red ✗'
     expect(await ui.find({ text: /1 without model or effort/ })).toBeDefined()
     await ui.unmount()
   }
+})
+
+test('a long model id gives way in a narrow pane, keeping the status glyph and kind', async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: {}, text: 'ok' }))
+  await $.tool.call({ tool: 'Bash', command: 'codex exec -m ollama/qwen2.5-coder:32b-instruct-q4_K_M -c model_reasoning_effort=high x', tool_use_id: 'lm1' } as never)
+  const ui = await $.ui.mount({ ...pane(40), surface: 'terminal' })
+  expect(await ui.find({ text: /^✓ $/ })).toBeDefined()
+  expect(await ui.find({ text: /^exec$/ })).toBeDefined()
+  expect(await ui.find({ text: /ollama\/qwen2\.5-coder:32b-instruct-q4_K_M/ })).toBeUndefined() // shortened
+  expect(await ui.find({ text: /^ollama\// })).toBeDefined()
+  await ui.unmount()
 })
 
 test('skills and plugins are counted from skill calls, agent types and MCP tools', async ($, on) => {
