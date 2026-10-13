@@ -393,11 +393,13 @@ function teamAfter(team: Team, ev: TeamEvent): Team {
       // A teammate with no live entry on the list (ended, or no more listed) has shut down. One respawned
       // under its address may sit beside its predecessor's ended entry, so any live entry keeps it.
       // Its `running` or `idle` is not read: the list says `running` while a teammate waits.
-      // A teammate that joined while the list was read is not on it yet: the list says nothing of it.
+      // A teammate that joined, or changed state (a message reviving it), while the list was read may
+      // not be on it as it is now: the list says nothing of it.
       let next = team
       for (const m of team.members) {
         const isUp = ev.agents.some(x => (x.id === m.id || x.teammateId === m.id) && isLive(x.status))
-        if (m.state !== 'ended' && m.joinedAt < ev.at && !isUp) next = move(next, m.id, 'ended', ev.at)
+        const isSeen = m.joinedAt < ev.at && m.since < ev.at
+        if (m.state !== 'ended' && isSeen && !isUp) next = move(next, m.id, 'ended', ev.at)
       }
       return next
     }

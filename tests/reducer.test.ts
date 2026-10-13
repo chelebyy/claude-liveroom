@@ -157,4 +157,9 @@ test('the agent list ends a teammate it shows ended or no longer lists, and read
   const late = joinTeam(EMPTY, { id: 'critic@x', teammateId: 'critic@x', model: '' }, 8)
   expect(reduceTeam(late, { type: 'listed', agents: [], at: 8 }).changes).toEqual([])
   expect(reduceTeam(late, { type: 'listed', agents: [], at: 9 }).changes[0]?.to).toBe('ended')
+  // One revived while the list was read (a message woke it at 12) is not held to it either.
+  const revived = setState(late, 'critic@x', 'idle', 10)
+  const woken = reduceTeam(revived, { type: 'send', to: 'critic', message: 'one more', at: 12 }).team
+  expect(reduceTeam(woken, { type: 'listed', agents: [], at: 11 }).changes).toEqual([])
+  expect(reduceTeam(woken, { type: 'listed', agents: [], at: 13 }).changes[0]?.to).toBe('ended')
 })

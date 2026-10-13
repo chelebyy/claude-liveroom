@@ -1436,9 +1436,12 @@ async function endTeammates($: EngineInterface) {
  * was cut short is read from the agent list, quietly, as before.
  */
 async function dispatchTeam($: EngineInterface, ev: TeamEvent): Promise<Change[]> {
-  // An event that changes nothing, as most agent-list reads, leaves the state and its readers alone.
-  const was = teamOf(await read($, team))
-  if (JSON.stringify(reduceTeam(was, ev).team) === JSON.stringify(was)) return []
+  // An agent-list read that changes nothing, as most do, leaves the state and its readers alone. Only
+  // that one: the next read redoes whatever this check, made before the write, missed.
+  if (ev.type === 'listed') {
+    const was = teamOf(await read($, team))
+    if (JSON.stringify(reduceTeam(was, ev).team) === JSON.stringify(was)) return []
+  }
   let changes: Change[] = []
   await update($, team, t => {
     const r = reduceTeam(teamOf(t), ev)
