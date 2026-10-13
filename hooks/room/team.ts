@@ -23,11 +23,34 @@ const TASKS = 200
 
 const listOf = <T>(x: unknown): T[] => (Array.isArray(x) ? (x as T[]) : [])
 const str = (x: unknown): string | null => (typeof x === 'string' ? x : null)
+const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
 
-/** The team read leniently: a missing or odd field reads as empty. */
+/**
+ * A teammate's name as stored and matched: credentials masked, as everything else from a tool input,
+ * one line, 256 characters at most (agent names run that long). Every name goes through it, the
+ * roster's, a task owner's and a message's ends, so a masked name still finds its teammate.
+ */
+export const nameOf = (x: string) => shorten(redact(x), 256)
+
+const MEMBER_STATES: readonly unknown[] = ['working', 'idle', 'ended', 'failed']
+const MESSAGE_KINDS: readonly unknown[] = ['text', 'shutdown-request', 'shutdown-response', 'plan-request', 'plan-response']
+
+/** A stored member, or none for an entry without an id, a name or a known state. */
+function memberIn(x: Partial<TeamMember> | null): TeamMember[] {
+  if (!x || typeof x.id !== 'string' || typeof x.name !== 'string' || !MEMBER_STATES.includes(x.state)) return []
+  return [{ id: x.id, name: x.name, model: str(x.model) ?? '', state: x.state!, since: num(x.since), isPane: x.isPane === true, sent: num(x.sent) }]
+}
+
+/** A stored message, or none for an entry without its ends, a known kind or its text. */
+function messageIn(x: Partial<TeamMessage> | null): TeamMessage[] {
+  if (!x || typeof x.from !== 'string' || typeof x.to !== 'string' || typeof x.text !== 'string' || !MESSAGE_KINDS.includes(x.kind)) return []
+  return [{ at: num(x.at), from: x.from, to: x.to, kind: x.kind!, text: x.text, approve: typeof x.approve === 'boolean' ? x.approve : null }]
+}
+
+/** The team read leniently: a missing or odd field reads as empty, an odd entry as none. */
 export function teamOf(x: unknown): Team {
   const t = (x && typeof x === 'object' ? x : {}) as Partial<Team>
-  return { members: listOf<TeamMember>(t.members), messages: listOf<TeamMessage>(t.messages) }
+  return { members: listOf<Partial<TeamMember> | null>(t.members).flatMap(memberIn), messages: listOf<Partial<TeamMessage> | null>(t.messages).flatMap(messageIn) }
 }
 
 /**
@@ -36,7 +59,7 @@ export function teamOf(x: unknown): Team {
  * as its id, as it runs no loop here.
  */
 export function joinTeam(team: Team, m: { id: string; teammateId: string; model: string }, at: number): Team {
-  const name = m.teammateId.split('@')[0] || m.id
+  const name = nameOf(m.teammateId.split('@')[0] || m.id)
   const member: TeamMember = { id: m.id, name, model: m.model, state: 'working', since: at, isPane: m.id.includes('@'), sent: 0 }
   return { ...team, members: boundMembers([...team.members.filter(x => x.id !== m.id), member]) }
 }
@@ -58,7 +81,8 @@ export const memberOf = (team: Team, id: string | undefined) => (id ? team.membe
  * respawn under the name replaces the old.
  */
 export const memberNamed = (team: Team, name: string) => {
-  const is = (m: TeamMember) => m.name === name || m.id === name
+  const named = nameOf(name)
+  const is = (m: TeamMember) => m.name === named || m.id === name
   return [...team.members].reverse().find(m => is(m) && m.state !== 'ended') ?? [...team.members].reverse().find(is)
 }
 
@@ -108,8 +132,9 @@ export const isLive = (status: string) => LIVE.has(status)
  * text message shows its sender's summary, else its first line, with credentials masked.
  */
 export function messageOf(input: { to?: unknown; message?: unknown; summary?: unknown }, from: string, at: number): TeamMessage | null {
-  const to = str(input.to)
+  const to = nameOf(str(input.to) ?? '')
   if (!to) return null
+  from = nameOf(from)
   const m = input.message
   if (typeof m === 'string') {
     const summary = str(input.summary)?.trim() || m.split('\n').find(l => l.trim()) || ''
@@ -225,11 +250,8 @@ const STATUSES: readonly TeamTask['status'][] = ['pending', 'in_progress', 'comp
 /** A task's subject as stored and shown: credentials masked, one line, 120 characters at most. */
 const subjectOf = (x: unknown) => shorten(redact(str(x) ?? ''), 120)
 
-/**
- * A task's owner as stored: a teammate's name whole (up to 256 characters), so it still matches the
- * member; credentials masked all the same; none when empty. The panel shortens it when drawn.
- */
-const ownerOf = (x: unknown) => shorten(redact(str(x) ?? ''), 256) || null
+/** A task's owner as stored: a teammate's name as the roster keeps it; none when empty. The panel shortens it when drawn. */
+const ownerOf = (x: unknown) => nameOf(str(x) ?? '') || null
 const statusOf = (x: unknown): TeamTask['status'] | null => (STATUSES as readonly unknown[]).includes(x) ? (x as TeamTask['status']) : null
 
 /** The task list read leniently: entries without an id are dropped. */

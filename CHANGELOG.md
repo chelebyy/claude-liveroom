@@ -12,7 +12,7 @@
 - Teammates in panes of their own run outside the lead's process. Their state is read from their messages and the team's idle, shutdown and termination notices; their plan requests and plan and shutdown answers show as such, and anything else they write, JSON included, as a message. See "What is inferred".
 - The team panel shows only the team's messages, between the lead and a teammate or two teammates: SendMessage to or from another session stays out. A plan answer, a shutdown request, or a task assigned to it with TaskUpdate wakes a teammate like a message.
 - A session that ends other than by `/clear` (a resume, a branch, an exit) clears its team, as Claude Code brings none of its teammates back; the task list stays.
-- Task subjects and owners are stored with credentials masked, as every other text from a tool input.
+- Task subjects, task owners and teammates' names are stored with credentials masked, as every other text from a tool input; a name masked that way still finds its teammate and its task.
 - A teammate respawned under its address drops its old ⚠ unless the new spawn earns one; the inline summary lists working teammates first.
 - A mailbox delivery another mod consumes doesn't count, and one it rewrites is read as rewritten.
 - A pane teammate's task completion notice marks its task done on the board, under the subject and owner the notice gives.
@@ -27,6 +27,7 @@
 - A teammate cut short counts as still there only while the agent list gives it a live status (`pending`, `running`, `waiting` or `idle`); any other, one a later Claude Code adds included, shows ■ until a turn of its own brings it back.
 - A task assigned and completed (or deleted) in one TaskUpdate leaves its owner waiting.
 - A mailbox notice counts only for the teammate whose mailbox sent it: one that names another teammate changes no one.
+- A stored team entry that can't be read (after a version change or a broken write) is dropped instead of breaking the pane.
 - The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.
 
 ## Liveroom 0.3.0

@@ -16,13 +16,16 @@ import {
   isTeamMessage,
   joinTeam,
   listTasks,
+  memberNamed,
   messageOf,
   noticeOf,
   protocolOf,
+  nameOf,
   reopen,
   rosterRows,
   setState,
   taskOf,
+  teamOf,
   turnEndState,
   updateTask,
 } from '../hooks/room/team'
@@ -123,6 +126,27 @@ test('the agent list reads a teammate as still there only by a status known to b
   expect(['pending', 'running', 'waiting', 'idle'].map(isLive)).toEqual([true, true, true, true])
   // Ended, and any status a later Claude Code adds: a turn of its own brings the teammate back.
   expect(['completed', 'failed', 'killed', 'stopped', ''].map(isLive)).toEqual([false, false, false, false, false])
+})
+
+test('a name that looks like a credential is masked wherever it is kept, and still finds its teammate', () => {
+  const raw = 'ghp_abcdefghijklmnop'
+  let t = joinTeam(EMPTY, { id: 'a1', teammateId: `${raw}@x`, model: '' }, 0)
+  expect(t.members[0]?.name).toBe(nameOf(raw))
+  expect(t.members[0]?.name).not.toContain('abcdefgh')
+  expect(memberNamed(t, raw)?.id).toBe('a1')
+  t = applyMessage(t, messageOf({ to: LEAD, message: 'done' }, raw, 1)!)
+  expect([t.messages[0]?.from, t.members[0]?.sent]).toEqual([nameOf(raw), 1])
+  const ts = updateTask(addTask([], { id: '1', subject: 'audit' }), { taskId: '1', status: 'in_progress', owner: raw })
+  expect(ts[0]?.owner).not.toContain('abcdefgh')
+  expect(taskOf(ts, t.members[0]!.name)?.id).toBe('1')
+})
+
+test('a stored team keeps only entries it can read', () => {
+  const member = { id: 'a1', name: 'scout', model: 'm', state: 'idle', since: 5, isPane: false, sent: 2 }
+  const message = { at: 1, from: 'scout', to: LEAD, kind: 'text', text: 'hi', approve: null }
+  const t = teamOf({ members: [null, 7, { id: 'a2' }, { ...member, state: 'gone' }, member], messages: [null, { from: 'scout' }, { ...message, kind: 'odd' }, message] })
+  expect(t).toEqual({ members: [member], messages: [message] })
+  expect(teamOf({ members: [{ id: 'a3', name: 'x', state: 'working' }] }).members[0]).toEqual({ id: 'a3', name: 'x', model: '', state: 'working', since: 0, isPane: false, sent: 0 })
 })
 
 test('the task list: created, updated, owned, deleted, and replaced by a TaskList answer', () => {
