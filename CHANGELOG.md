@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- README: the opening animation is Liveroom's own, from a live session with two teammates; the social preview is Liveroom's.
+- Issue forms for bugs and feature requests, a private security link, and a pull request checklist.
 - README: says why a teammate in a pane of its own shows its state and messages but not its steps, tool calls, context or cost. Carrying them over would need a store two processes share, and Liveroom writes none.
 
 ## Liveroom 0.5.0

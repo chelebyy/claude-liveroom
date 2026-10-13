@@ -1,0 +1,48 @@
+name: Bug report
+description: The pane shows something wrong, misses something, or breaks.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What the pane showed, and what you expected it to show.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce
+      description: The steps, prompt or team setup that leads to it.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Claude Code version
+      description: The output of `claude --version`.
+      placeholder: 2.1.296 (Claude Code)
+    validations:
+      required: true
+  - type: input
+    id: liveroom
+    attributes:
+      label: Liveroom version
+      description: From `claude plugin list`.
+      placeholder: "0.5.0"
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where it runs
+      options: [Terminal, Terminal inside tmux, Desktop app, VS Code, Mobile]
+  - type: dropdown
+    id: layout
+    attributes:
+      label: Layout
+      options: [Docked pane, Inline summary, Not sure]
+  - type: textarea
+    id: log
+    attributes:
+      label: Dim "liveroom:" lines from the transcript
+      description: Paste any, and a screenshot if it helps. Check it for anything private first.
+      render: text
