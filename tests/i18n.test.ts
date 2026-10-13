@@ -261,6 +261,10 @@ test('a tagged turn opener is read for its tag and sender, as promptLine reads t
   const peer = 'Another Claude session sent a message:\n<teammate-message teammate_id="scout" color="blue" summary="greeting">\nhello'
   expect(openerOf(withoutPeerNote(peer))).toEqual({ label: 'teammate message', from: 'scout' })
   expect(withoutPeerNote('Fix this:\n<div>x</div>')).toBe('Fix this:\n<div>x</div>') // only the engine's own note
+  // A sender that looks like a credential is masked before it is cut: no prefix of it reaches the log.
+  const masked = openerOf('<teammate-message teammate_id="ghp_abcdefghijklmnop" summary="s">\nhi')?.from
+  expect(masked).toMatch(/^•••#/)
+  expect(masked).not.toContain('ghp_')
 })
 
 for (const [language, line, teammate, author] of [

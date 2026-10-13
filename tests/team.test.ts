@@ -260,6 +260,9 @@ test('a task that completes moves after those done before it', () => {
   expect(ts.map(t => t.id)).toEqual(['2', '1'])
   expect(boardRows(ts, 1).map(t => t.id)).toEqual(['1']) // the newest done
   expect(updateTask(ts, { taskId: '2', subject: 'b2' }).map(t => t.id)).toEqual(['2', '1']) // a done task edited stays put
+  // A TaskList answer in creation order keeps the order the pane saw them finish in; a new completion follows.
+  const listed = listTasks(ts, [{ id: '1', status: 'completed' }, { id: '2', status: 'completed' }, { id: '3', status: 'completed' }, { id: '4', status: 'pending' }])
+  expect(listed.map(t => t.id)).toEqual(['2', '1', '3', '4'])
 })
 
 test('an assignment notice gives the task its current subject', () => {

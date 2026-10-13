@@ -33,7 +33,8 @@
 - A completion notice changes the board only when its sender is a current teammate: a departed one's late notice after a resume is not this team's.
 - The turn receipt counts the teammates a turn spawned among its agents, though they have no card.
 - An assignment notice changes the board only when it comes from the lead or a current teammate.
-- A task that completes moves after those done before it, so the board's newest done and the 200-task bound follow the order tasks finished in.
+- A task that completes moves after those done before it, so the board's newest done and the 200-task bound follow the order tasks finished in; a TaskList answer keeps that order for the done tasks the pane saw finish.
+- A log line's sender for a tagged turn opener is masked as a teammate's name is before it is cut to width.
 - The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.
 
 ## Liveroom 0.3.0
