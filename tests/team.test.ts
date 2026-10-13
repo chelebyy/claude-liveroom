@@ -139,6 +139,12 @@ test('a name that looks like a credential is masked wherever it is kept, and sti
   const ts = updateTask(addTask([], { id: '1', subject: 'audit' }), { taskId: '1', status: 'in_progress', owner: raw })
   expect(ts[0]?.owner).not.toContain('abcdefgh')
   expect(taskOf(ts, t.members[0]!.name)?.id).toBe('1')
+  // Two names that mask alike stay two teammates: each masked name carries its own digest.
+  t = joinTeam(t, { id: 'a2', teammateId: 'ghp_bbbbbbbbbbbbbbbb@x', model: '' }, 2)
+  expect(t.members[1]?.name).not.toBe(t.members[0]?.name)
+  expect([memberNamed(t, raw)?.id, memberNamed(t, 'ghp_bbbbbbbbbbbbbbbb')?.id]).toEqual(['a1', 'a2'])
+  expect(nameOf(raw)).toMatch(/^•••#[0-9a-z]+$/)
+  expect(nameOf('scout-2')).toBe('scout-2')
 })
 
 test('a stored team keeps only entries it can read', () => {

@@ -25,12 +25,23 @@ const listOf = <T>(x: unknown): T[] => (Array.isArray(x) ? (x as T[]) : [])
 const str = (x: unknown): string | null => (typeof x === 'string' ? x : null)
 const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
 
+/** A short, stable digest (32-bit FNV-1a): it tells masked names apart without keeping what was masked. */
+function digest(s: string): string {
+  let h = 0x811c9dc5
+  for (const c of s) h = Math.imul(h ^ c.codePointAt(0)!, 0x01000193) >>> 0
+  return h.toString(36)
+}
+
 /**
  * A teammate's name as stored and matched: credentials masked, as everything else from a tool input,
- * one line, 256 characters at most (agent names run that long). Every name goes through it, the
- * roster's, a task owner's and a message's ends, so a masked name still finds its teammate.
+ * one line, 256 characters at most (agent names run that long). A masked name carries its digest
+ * (`•••#1x2y3z`), so two names that mask alike stay two teammates. Every name goes through it, the
+ * roster's, a task owner's and a message's ends, so a masked name still finds its own teammate.
  */
-export const nameOf = (x: string) => shorten(redact(x), 256)
+export function nameOf(x: string): string {
+  const masked = redact(x)
+  return masked === x ? shorten(x, 256) : `${shorten(masked, 240)}#${digest(x)}`
+}
 
 const MEMBER_STATES: readonly unknown[] = ['working', 'idle', 'ended', 'failed']
 const MESSAGE_KINDS: readonly unknown[] = ['text', 'shutdown-request', 'shutdown-response', 'plan-request', 'plan-response']
