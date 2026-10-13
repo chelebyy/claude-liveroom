@@ -309,6 +309,9 @@ export type Delivery = { type: 'deliver'; sender: string; isVerified: boolean; t
  *   still has it, read for a turn cut short.
  * - `send`: a SendMessage call that went out, from the lead or the loop `fromId`.
  * - `deliver`: a mailbox delivery. `assign`: a TaskUpdate that gave a task still to do to `owner`.
+ * - `listed`: the session's agent list, read when the lead's turn ends and after a delivery, `at` when
+ *   the read began. A teammate outside the lead's process may shut down with no notice reaching the
+ *   lead: the list then shows it ended, or no more.
  * - `clear`: `/clear` or `/liveroom reset`. `end`: the session ended otherwise.
  */
 export type TeamEvent =
@@ -318,6 +321,7 @@ export type TeamEvent =
   | { type: 'send'; fromId?: string; to?: unknown; message?: unknown; summary?: unknown; at: number }
   | Delivery
   | { type: 'assign'; owner: string; byId?: string; at: number }
+  | { type: 'listed'; agents: readonly { id: string; teammateId?: string; status: string }[]; at: number }
   | { type: 'clear' }
   | { type: 'end' }
 
@@ -337,12 +341,12 @@ function changesOf(before: Team, after: Team): Change[] {
 }
 
 /**
- * The teammates an event shut down by their own answer or a notice: those it moved to ended, and those
- * it ended and the roster bound then let go at once. A turn cut short is read from the agent list
- * instead, and a clear or an end only lets teammates go.
+ * The teammates an event shut down by their own answer, a notice or the agent list: those it moved to
+ * ended, and those it ended and the roster bound then let go at once. A turn cut short stays quiet, as
+ * before, and a clear or an end only lets teammates go.
  */
 export function shutdownsOf(ev: TeamEvent, changes: readonly Change[]): Change[] {
-  if (ev.type !== 'send' && ev.type !== 'deliver') return []
+  if (ev.type !== 'send' && ev.type !== 'deliver' && ev.type !== 'listed') return []
   return changes.filter(c => c.to === 'ended' || (c.to === null && c.from !== null && c.from !== 'ended'))
 }
 
@@ -384,6 +388,20 @@ function teamAfter(team: Team, ev: TeamEvent): Team {
       // One that took the task itself is already at work.
       const member = memberNamed(team, ev.owner)
       return member && member.id !== ev.byId ? move(team, member.id, 'assigned', ev.at) : team
+    }
+    case 'listed': {
+      // A teammate with no live entry on the list (ended, or no more listed) has shut down. One respawned
+      // under its address may sit beside its predecessor's ended entry, so any live entry keeps it.
+      // Its `running` or `idle` is not read: the list says `running` while a teammate waits.
+      // A teammate that joined, or changed state (a message reviving it), while the list was read may
+      // not be on it as it is now: the list says nothing of it.
+      let next = team
+      for (const m of team.members) {
+        const isUp = ev.agents.some(x => (x.id === m.id || x.teammateId === m.id) && isLive(x.status))
+        const isSeen = m.joinedAt < ev.at && m.since < ev.at
+        if (m.state !== 'ended' && isSeen && !isUp) next = move(next, m.id, 'ended', ev.at)
+      }
+      return next
     }
     case 'clear':
       // `/clear` clears the lead's conversation, not its teammates: only a pane teammate that shut down

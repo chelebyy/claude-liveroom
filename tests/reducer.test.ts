@@ -133,3 +133,33 @@ test('only an assignment or a completion notice touches the task list', () => {
   expect(isTaskNotice({ ...at, text: '{"type":"idle_notification","from":"scout"}' })).toBe(false)
   expect(isTaskNotice({ ...at, text: 'words' })).toBe(false)
 })
+
+test('the agent list ends a teammate it shows ended or no longer lists, and reads nothing from running or idle', () => {
+  const bg = one('working', true) // a background or pane teammate: its id is its address
+  const listed = (status: string | null) =>
+    reduceTeam(bg, { type: 'listed', agents: status ? [{ id: 'scout@x', teammateId: 'scout@x', status }] : [], at: 8 })
+  expect([listed('running'), listed('idle'), listed('waiting')].map(r => r.changes)).toEqual([[], [], []])
+  const done = listed('completed')
+  expect(done.changes).toEqual([{ id: 'scout@x', name: 'scout', from: 'working', to: 'ended' }])
+  expect(shutdownsOf({ type: 'listed', agents: [], at: 8 }, done.changes).map(c => c.id)).toEqual(['scout@x'])
+  expect(listed(null).changes[0]?.to).toBe('ended') // no longer listed
+  // Respawned under its address beside its predecessor's ended entry: the live entry keeps it, in either order.
+  const both = (a: string, b: string) => reduceTeam(bg, { type: 'listed', agents: [{ id: 'scout@x', teammateId: 'scout@x', status: a }, { id: 'scout@x', teammateId: 'scout@x', status: b }], at: 8 }).changes
+  expect([both('completed', 'running'), both('running', 'completed')]).toEqual([[], []])
+  // A list that keys it by another id still finds it by its address.
+  expect(reduceTeam(bg, { type: 'listed', agents: [{ id: 'a9', teammateId: 'scout@x', status: 'killed' }], at: 8 }).changes[0]?.to).toBe('ended')
+  expect(reduceTeam(bg, { type: 'listed', agents: [{ id: 'a9', teammateId: 'scout@x', status: 'running' }], at: 8 }).changes).toEqual([])
+  // An in-process teammate is listed under its agent id, `running` between turns: it stays as it was.
+  const inProcess = one('idle')
+  expect(reduceTeam(inProcess, { type: 'listed', agents: [{ id: 'a1', teammateId: 'scout@x', status: 'running' }], at: 8 }).changes).toEqual([])
+  expect(reduceTeam(one('ended'), { type: 'listed', agents: [], at: 8 }).changes).toEqual([])
+  // One that joined while the list was read is not on it yet, and stays as it is.
+  const late = joinTeam(EMPTY, { id: 'critic@x', teammateId: 'critic@x', model: '' }, 8)
+  expect(reduceTeam(late, { type: 'listed', agents: [], at: 8 }).changes).toEqual([])
+  expect(reduceTeam(late, { type: 'listed', agents: [], at: 9 }).changes[0]?.to).toBe('ended')
+  // One revived while the list was read (a message woke it at 12) is not held to it either.
+  const revived = setState(late, 'critic@x', 'idle', 10)
+  const woken = reduceTeam(revived, { type: 'send', to: 'critic', message: 'one more', at: 12 }).team
+  expect(reduceTeam(woken, { type: 'listed', agents: [], at: 11 }).changes).toEqual([])
+  expect(reduceTeam(woken, { type: 'listed', agents: [], at: 13 }).changes[0]?.to).toBe('ended')
+})

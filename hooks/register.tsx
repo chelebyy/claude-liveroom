@@ -536,6 +536,7 @@ export const register: Register = (on, options) => {
       })
       await update($, receipt, () => r)
       await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), isRunning: false }))
+      await readAgentList($, cfg)
       await refreshStatus($, cfg)
       return done
     }
@@ -1330,11 +1331,17 @@ export const register: Register = (on, options) => {
   // Only what was queued counts: a later hook may consume a delivery or rewrite its text.
   on('session.receive', async ($, e, next) => {
     const got = await next(e)
-    if (!('teammate' in e.origin) || got.consumed !== undefined) return got
+    if (!('teammate' in e.origin)) return got
+    // A delivery another hook consumed doesn't count, but a teammate may have left with it.
+    if (got.consumed !== undefined) {
+      await readAgentList($, cfg)
+      return got
+    }
     const ev: Delivery = { type: 'deliver', sender: e.origin.teammate, isVerified: e.origin.isVerified, text: got.text, toId: e.agentId, at: await $.clock.now() }
     const was = teamOf(await read($, team))
     if (isTaskNotice(ev)) await update($, tasks, ts => reduceTasks(tasksOf(ts), ev, was))
     await teamEvent($, cfg, ev)
+    await readAgentList($, cfg)
     return got
   })
 }
@@ -1429,6 +1436,12 @@ async function endTeammates($: EngineInterface) {
  * was cut short is read from the agent list, quietly, as before.
  */
 async function dispatchTeam($: EngineInterface, ev: TeamEvent): Promise<Change[]> {
+  // An agent-list read that changes nothing, as most do, leaves the state and its readers alone. Only
+  // that one: the next read redoes whatever this check, made before the write, missed.
+  if (ev.type === 'listed') {
+    const was = teamOf(await read($, team))
+    if (JSON.stringify(reduceTeam(was, ev).team) === JSON.stringify(was)) return []
+  }
   let changes: Change[] = []
   await update($, team, t => {
     const r = reduceTeam(teamOf(t), ev)
@@ -1447,6 +1460,22 @@ async function teamEvent($: EngineInterface, cfg: Config, ev: TeamEvent) {
 /** Forgets an agent's delegation note. */
 async function dropRule($: EngineInterface, id: string) {
   await update($, rules, r => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([k]) => k !== id)))
+}
+
+/**
+ * The session's agent list read into the team, while a teammate is still up: one it lists as ended, or
+ * no more, has shut down. Nothing when the list can't be read.
+ */
+async function readAgentList($: EngineInterface, cfg: Config) {
+  if (teamOf(await read($, team)).members.every(m => m.state === 'ended')) return
+  const at = await $.clock.now() // a teammate joining after this isn't on the list yet
+  let agents: { id: string; teammateId?: string; status: string }[]
+  try {
+    agents = (await $.agent.list()).map(a => ({ id: a.id, teammateId: a.teammateId, status: a.status }))
+  } catch {
+    return
+  }
+  await teamEvent($, cfg, { type: 'listed', agents, at })
 }
 
 /** Whether an agent is still there on the session's list, by a status known to be live; true when the list can't be read. */
