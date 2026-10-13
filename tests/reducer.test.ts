@@ -143,6 +143,9 @@ test('the agent list ends a teammate it shows ended or no longer lists, and read
   expect(done.changes).toEqual([{ id: 'scout@x', name: 'scout', from: 'working', to: 'ended' }])
   expect(shutdownsOf({ type: 'listed', agents: [], at: 8 }, done.changes).map(c => c.id)).toEqual(['scout@x'])
   expect(listed(null).changes[0]?.to).toBe('ended') // no longer listed
+  // Respawned under its address beside its predecessor's ended entry: the live entry keeps it, in either order.
+  const both = (a: string, b: string) => reduceTeam(bg, { type: 'listed', agents: [{ id: 'scout@x', teammateId: 'scout@x', status: a }, { id: 'scout@x', teammateId: 'scout@x', status: b }], at: 8 }).changes
+  expect([both('completed', 'running'), both('running', 'completed')]).toEqual([[], []])
   // A list that keys it by another id still finds it by its address.
   expect(reduceTeam(bg, { type: 'listed', agents: [{ id: 'a9', teammateId: 'scout@x', status: 'killed' }], at: 8 }).changes[0]?.to).toBe('ended')
   expect(reduceTeam(bg, { type: 'listed', agents: [{ id: 'a9', teammateId: 'scout@x', status: 'running' }], at: 8 }).changes).toEqual([])
