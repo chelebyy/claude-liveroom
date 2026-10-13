@@ -164,6 +164,10 @@ test('the task list: created, updated, owned, deleted, and replaced by a TaskLis
   ts = updateTask(ts, { taskId: '1', status: 'in_progress', owner: 'scout' })
   expect(ts[0]).toEqual({ id: '1', subject: 'probe task one', status: 'in_progress', owner: 'scout' })
   expect(taskOf(ts, 'scout')?.id).toBe('1')
+  // Work in progress comes first; else a task it owns that waits, as a pane teammate's own start never shows.
+  expect(taskOf(updateTask(ts, { taskId: '2', owner: 'scout' }), 'scout')?.id).toBe('1')
+  expect(taskOf(updateTask(ts, { taskId: '2', owner: 'critic' }), 'critic')?.id).toBe('2')
+  expect(taskOf(ts, 'nobody')).toBeNull()
   ts = updateTask(ts, { taskId: '1', owner: '' })
   expect(ts[0]?.owner).toBeNull()
   ts = updateTask(ts, { taskId: '9', status: 'completed' }) // made by a pane teammate this pane never saw
@@ -263,9 +267,12 @@ test('a task that completes moves after those done before it', () => {
   expect(ts.map(t => t.id)).toEqual(['2', '1'])
   expect(boardRows(ts, 1).map(t => t.id)).toEqual(['1']) // the newest done
   expect(updateTask(ts, { taskId: '2', subject: 'b2' }).map(t => t.id)).toEqual(['2', '1']) // a done task edited stays put
-  // A TaskList answer in creation order keeps the order the pane saw them finish in; one it doesn't hold goes first, as the oldest.
-  const listed = listTasks(ts, [{ id: '1', status: 'completed' }, { id: '2', status: 'completed' }, { id: '3', status: 'completed' }, { id: '4', status: 'pending' }])
-  expect(listed.map(t => t.id)).toEqual(['3', '2', '1', '4'])
+  // A TaskList answer in creation order keeps the order the pane saw them finish in; one it held open has
+  // just finished and follows them; one it doesn't hold at all goes first, as the oldest.
+  const held = addTask(ts, { id: '5', subject: 'e' })
+  const listed = listTasks(held, [{ id: '1', status: 'completed' }, { id: '2', status: 'completed' }, { id: '3', status: 'completed' }, { id: '4', status: 'pending' }, { id: '5', status: 'completed' }])
+  expect(listed.map(t => t.id)).toEqual(['3', '2', '1', '4', '5'])
+  expect(boardRows(listed, 2).map(t => t.id)).toEqual(['4', '5']) // the newest done is the one that just finished
   // Past the bound, a listing of every completion keeps the newest 200: the evicted one doesn't come back as newest.
   let many: TeamTask[] = []
   for (let i = 1; i <= 201; i++) many = updateTask(many, { taskId: String(i), status: 'completed' })
@@ -603,6 +610,7 @@ test('a task the lead assigns to a waiting teammate sets it to work', { options:
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', owner: 'critic', tool_use_id: 'k2' } as never)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /^1 working · 0 idle$/ })).toBeDefined()
+  expect(await ui.find({ text: /^ #1 audit auth$/ })).toBeDefined() // the task that set it to work, still pending here
   await ui.unmount()
   expect(statuses.at(-1)).toContain('team 1/1')
 })

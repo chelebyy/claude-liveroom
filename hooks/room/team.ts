@@ -320,13 +320,14 @@ export function updateTask(tasks: readonly TeamTask[], input: { taskId?: unknown
 /**
  * A TaskList answer is the whole list: it replaces what the pane pieced together, keeping known
  * subjects. The answer gives no completion order, so the done tasks keep the order the pane saw them
- * finish in. Those it doesn't hold go first, as the oldest: mostly ones the 200-task bound let go,
- * which would otherwise come back as the newest and push recent ones out.
+ * finish in; one the pane held open has just finished and follows them. One it doesn't hold at all
+ * goes first, as the oldest: mostly one the 200-task bound let go, which would otherwise come back
+ * as the newest and push recent ones out.
  */
 export function listTasks(tasks: readonly TeamTask[], listed: unknown): TeamTask[] {
   const all = tasksOf(listed).map(t => ({ ...t, subject: t.subject || tasks.find(x => x.id === t.id)?.subject || '' }))
   const finished = tasks.filter(t => t.status === 'completed').map(t => t.id)
-  const rank = (t: TeamTask) => finished.indexOf(t.id) // -1, first, for one it doesn't hold
+  const rank = (t: TeamTask) => (finished.includes(t.id) ? finished.indexOf(t.id) : tasks.some(x => x.id === t.id) ? finished.length : -1)
   const done = all.filter(t => t.status === 'completed').map((t, i) => ({ t, i })).sort((a, b) => rank(a.t) - rank(b.t) || a.i - b.i).map(x => x.t)
   let k = 0
   return bound(all.map(t => (t.status === 'completed' ? done[k++]! : t))) // open tasks keep their places
@@ -350,8 +351,12 @@ export function completeTask(tasks: readonly TeamTask[], taskId: string, subject
   return upsert(tasks, { ...was, subject: subjectOf(subject) || was.subject, status: 'completed', owner: ownerOf(owner) ?? was.owner })
 }
 
-/** The task a member works on: one it owns that is in progress. */
-export const taskOf = (tasks: readonly TeamTask[], name: string) => tasks.find(t => t.owner === name && t.status === 'in_progress') ?? null
+/**
+ * The task a member works on: one it owns that is in progress, else one it owns that waits, as a pane
+ * teammate's own move to in progress never reaches the lead.
+ */
+export const taskOf = (tasks: readonly TeamTask[], name: string) =>
+  tasks.find(t => t.owner === name && t.status === 'in_progress') ?? tasks.find(t => t.owner === name && t.status === 'pending') ?? null
 
 /** The rows a board of `n` shows: work in progress first, then what waits, then the newest done. */
 export function boardRows(tasks: readonly TeamTask[], n: number): TeamTask[] {
