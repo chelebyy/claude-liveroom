@@ -15,7 +15,7 @@ Edits to `hooks/` hot-reload in that session when Claude's turn ends.
 ## Before a pull request
 
 ```sh
-claude plugin validate .
+claude plugin validate --strict .
 claude plugin test .
 npx -p typescript tsc -p .
 ```
