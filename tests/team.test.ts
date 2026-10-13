@@ -261,6 +261,15 @@ test('a long task list drops the oldest done first, so work in progress stays', 
   expect([open.length, open[0]?.id]).toEqual([201, '1'])
 })
 
+test('teammates that shut down are ordered by when they did, not by when they joined', () => {
+  let t = joinTeam(joinTeam(EMPTY, { id: 'a', teammateId: 'early@x', model: '' }, 0), { id: 'b', teammateId: 'late@x', model: '' }, 1)
+  t = setState(setState(t, 'b', 'ended', 5), 'a', 'ended', 10) // the later joiner shut down first
+  expect(rosterRows(t.members, 1).map(m => m.name)).toEqual(['early']) // the newest shutdown
+  for (let i = 0; i < 23; i++) t = joinTeam(t, { id: `w${i}`, teammateId: `w${i}@x`, model: '' }, 20 + i)
+  expect(t.members.length).toBe(24) // past 24, the earliest shutdown went
+  expect([t.members.some(m => m.id === 'a'), t.members.some(m => m.id === 'b')]).toEqual([true, false])
+})
+
 test('a task that completes moves after those done before it', () => {
   let ts: TeamTask[] = addTask(addTask([], { id: '1', subject: 'a' }), { id: '2', subject: 'b' })
   ts = updateTask(updateTask(ts, { taskId: '2', status: 'completed' }), { taskId: '1', status: 'completed' })

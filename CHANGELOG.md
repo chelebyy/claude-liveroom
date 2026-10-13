@@ -19,7 +19,7 @@
 - The status line's team total counts every teammate not shut down, a failed one included.
 - A session that ends other than by `/clear` takes its teammates' ⚠ notes with them.
 - Requires Claude Code 2.1.289 or later, which gives mods teammate spawns.
-- The roster never drops a teammate still running: past 24 it drops the oldest that shut down first.
+- The roster never drops a teammate still running: past 24 it drops the ones that shut down earliest, and the team panel shows the latest to shut down, by when they did, not by when they joined.
 - The task list keeps 200 tasks by dropping the oldest done; every task in progress or waiting stays, past 200 if it must.
 - A teammate whose first step comes before its spawn's answer leaves the other-loops row when it joins, also when it joins while that step's request runs.
 - A message from another agent or session reaches the log as its tag and sender (`teammate message from scout`), not as your prompt: Claude Code now puts a note before it. A background architect's hand-back behind that note is read as its advice again.

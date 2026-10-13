@@ -75,13 +75,16 @@ export function joinTeam(team: Team, m: { id: string; teammateId: string; model:
   return { ...team, members: boundMembers([...team.members.filter(x => x.id !== m.id), member]) }
 }
 
+/** The teammates that shut down, the earliest first: a teammate's `since` is when it shut down. */
+const endedOf = (members: readonly TeamMember[]) => members.filter(m => m.state === 'ended').sort((a, b) => a.since - b.since)
+
 /**
- * The roster kept to 24 by dropping the oldest teammates that shut down; a team has no size limit,
+ * The roster kept to 24 by dropping the teammates that shut down earliest; a team has no size limit,
  * so every one still running stays, past 24 if it must.
  */
 function boundMembers(members: readonly TeamMember[]): TeamMember[] {
-  let extra = members.length - MEMBERS
-  return members.filter(m => !(m.state === 'ended' && extra-- > 0))
+  const gone = new Set(endedOf(members).slice(0, Math.max(0, members.length - MEMBERS)))
+  return members.filter(m => !gone.has(m))
 }
 
 
@@ -104,7 +107,7 @@ export const memberNamed = (team: Team, name: string) => {
 export function rosterRows(members: readonly TeamMember[], n: number): TeamMember[] {
   const live = [...members.filter(m => m.state === 'working'), ...members.filter(m => m.state === 'idle' || m.state === 'failed')].slice(0, n)
   const room = n - live.length
-  return [...live, ...(room > 0 ? members.filter(m => m.state === 'ended').slice(-room) : [])]
+  return [...live, ...(room > 0 ? endedOf(members).slice(-room) : [])]
 }
 
 /**
