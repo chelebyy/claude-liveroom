@@ -482,8 +482,11 @@ export const register: Register = (on, options) => {
     const id = started.agentId
     // A teammate waits between turns rather than finishing: it joins the team panel, not the cards.
     if (e.isTeammate && started.teammateId) {
+      // Its first steps, even its whole first turn, can come before the spawn's answer: they ran as another loop.
+      const early = listOf<Loop>(await read($, loops)).find(x => x.id === id)
       await joinTeammate($, id, started.teammateId, started.model ?? '')
-      await update($, loops, l => listOf<Loop>(l).filter(x => x.id !== id)) // a first step that came before the spawn's answer
+      if (early?.isDone) await update($, team, t => setState(teamOf(t), id, 'idle', early.lastAt)) // that turn ended: it waits
+      await update($, loops, l => listOf<Loop>(l).filter(x => x.id !== id))
       await refreshStatus($, cfg)
       return started
     }

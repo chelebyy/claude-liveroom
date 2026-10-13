@@ -21,7 +21,7 @@
 - Requires Claude Code 2.1.289 or later, which gives mods teammate spawns.
 - The roster never drops a teammate still running: past 24 it drops the ones that shut down earliest, and the team panel shows the latest to shut down, by when they did, not by when they joined.
 - The task list keeps 200 tasks by dropping the oldest done; every task in progress or waiting stays, past 200 if it must.
-- A teammate whose first step comes before its spawn's answer leaves the other-loops row when it joins, also when it joins while that step's request runs.
+- A teammate whose first step comes before its spawn's answer leaves the other-loops row when it joins, also when it joins while that step's request runs. One whose first turn already ended by then joins waiting, not working.
 - A message from another agent or session reaches the log as its tag and sender (`teammate message from scout`), not as your prompt: Claude Code now puts a note before it. A background architect's hand-back behind that note is read as its advice again.
 - A pane teammate that writes a plan request or refuses a shutdown is working, as one that writes a message is; one that shut down stays so, whatever arrives from it later.
 - A teammate cut short counts as still there only while the agent list gives it a live status (`pending`, `running`, `waiting` or `idle`); any other, one a later Claude Code adds included, shows ■ until a turn of its own brings it back.
