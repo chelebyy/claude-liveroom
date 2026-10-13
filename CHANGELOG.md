@@ -37,6 +37,7 @@
 - A log line's sender for a tagged turn opener is masked as a teammate's name is before it is cut to width.
 - A pane teammate's JSON whose `type` is a name every object answers to (`constructor`) shows as its words, not as a protocol message; your own prompt that starts like Claude Code's peer note is logged whole.
 - A teammate's row shows a task it owns that waits when it owns none in progress, as a pane teammate's own start never reaches the lead. A TaskList answer puts a task the pane held open and now finds done after the earlier completions.
+- A SendMessage or a delivery involving an agent outside the team (an ordinary subagent) stays out of the team panel, even beside a teammate named `agent`.
 - The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.
 
 ## Liveroom 0.3.0

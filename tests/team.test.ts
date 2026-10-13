@@ -691,6 +691,21 @@ test('an assignment notice from no one in the team leaves the board alone', { op
   await ui.unmount()
 })
 
+test('a subagent\'s messages stay out of the team, even beside a teammate named agent', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await spawnTeammate($, 'agent')
+  await spawnTeammate($, 'critic')
+  await $.tool.call({ tool: 'SendMessage', agentId: 'sub-helper', to: 'team-lead', message: 'from a subagent', tool_use_id: 's1' } as never)
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'critic', isVerified: false }, text: 'to a subagent' } as never)
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'critic', isVerified: false }, text: 'to a subagent too', agentId: 'sub-helper' } as never)
+  const ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+  expect(await ui.find({ text: /from a subagent/ })).toBeUndefined()
+  expect(await ui.find({ text: /^to a subagent$/ })).toBeDefined() // to the lead: the team's
+  expect(await ui.find({ text: /to a subagent too/ })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('the inline summary lists working teammates first', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
   engine(on)
   await $.session.start(START)

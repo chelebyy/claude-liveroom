@@ -1474,7 +1474,10 @@ async function isListed($: EngineInterface, id: string): Promise<boolean> {
 /** A SendMessage that went out: from the lead, a teammate, or another agent of the session. */
 async function noteMessage($: EngineInterface, cfg: Config, e: { agentId?: string; to?: unknown; message?: unknown; summary?: unknown }) {
   const was = teamOf(await read($, team))
-  const from = e.agentId ? (memberOf(was, e.agentId)?.name ?? 'agent') : LEAD
+  // Another agent of the session (a subagent) is not the team's, whatever a teammate is named.
+  const author = e.agentId ? memberOf(was, e.agentId) : undefined
+  if (e.agentId && !author) return
+  const from = author?.name ?? LEAD
   // A teammate addressed by its id reads as its name, as the roster keeps it.
   const to = typeof e.to === 'string' ? (memberNamed(was, e.to)?.name ?? e.to) : e.to
   const msg = messageOf({ ...e, to }, from, await $.clock.now())
@@ -1497,8 +1500,10 @@ async function noteDelivery($: EngineInterface, sender: string, isVerified: bool
   const member = memberNamed(was, notice && notice.kind !== 'assigned' && notice.kind !== 'done' ? notice.from : sender)
   // A message the harness here didn't write is a pane teammate's, which no tool call showed: its
   // words (JSON included), or a protocol request or answer. The mailbox's own notices are not one.
-  if (!isVerified && !isNotice(text)) {
-    const msg = messageOf({ to: to ? (memberOf(was, to)?.name ?? 'agent') : LEAD, message: protocolOf(text) ?? text }, sender, at)
+  // One delivered to another agent of the session (a subagent) is not the team's.
+  const recipient = to ? memberOf(was, to) : undefined
+  if (!isVerified && !isNotice(text) && (!to || recipient)) {
+    const msg = messageOf({ to: recipient?.name ?? LEAD, message: protocolOf(text) ?? text }, sender, at)
     // A pane teammate that writes is in a turn, a plan request or a shutdown refusal included, unless
     // it agrees to shut down. One that shut down stays so: its process is gone.
     if (msg && isTeamMessage(was, msg)) {
