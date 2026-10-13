@@ -272,11 +272,13 @@ export function tasksOf(x: unknown): TeamTask[] {
   )
 }
 
-/** The list kept to 200 tasks: the oldest done go first, so work in progress or waiting stays. */
+/**
+ * The list kept to 200 tasks by dropping the oldest done; a task list has no size limit, so every
+ * task in progress or waiting stays, past 200 if it must.
+ */
 function bound(tasks: readonly TeamTask[]): TeamTask[] {
   let extra = tasks.length - TASKS
-  if (extra <= 0) return [...tasks]
-  return tasks.filter(t => !(t.status === 'completed' && extra-- > 0)).slice(-TASKS)
+  return tasks.filter(t => !(t.status === 'completed' && extra-- > 0))
 }
 
 const upsert = (tasks: readonly TeamTask[], task: TeamTask) => {
@@ -312,10 +314,13 @@ export function listTasks(tasks: readonly TeamTask[], listed: unknown): TeamTask
   return bound(tasksOf(listed).map(t => ({ ...t, subject: t.subject || tasks.find(x => x.id === t.id)?.subject || '' })))
 }
 
-/** A task assigned to a member, as its assignment notice says. */
+/**
+ * A task assigned to a member, as its assignment notice says: the notice's subject is the current one
+ * (a pane teammate may have renamed the task unseen).
+ */
 export function assignTask(tasks: readonly TeamTask[], taskId: string, subject: string, owner: string): TeamTask[] {
   const was = tasks.find(t => t.id === taskId) ?? { id: taskId, subject: '', status: 'pending' as const, owner: null }
-  return upsert(tasks, { ...was, subject: was.subject || subjectOf(subject), owner: ownerOf(owner) })
+  return upsert(tasks, { ...was, subject: subjectOf(subject) || was.subject, owner: ownerOf(owner) })
 }
 
 /**

@@ -20,7 +20,7 @@
 - A session that ends other than by `/clear` takes its teammates' ⚠ notes with them.
 - Requires Claude Code 2.1.289 or later, which gives mods teammate spawns.
 - The roster never drops a teammate still running: past 24 it drops the oldest that shut down first.
-- The task list keeps 200 tasks, dropping the oldest done first, so work in progress stays however long the list.
+- The task list keeps 200 tasks by dropping the oldest done; every task in progress or waiting stays, past 200 if it must.
 - A teammate whose first step comes before its spawn's answer leaves the other-loops row when it joins.
 - A message from another agent or session reaches the log as its tag and sender (`teammate message from scout`), not as your prompt: Claude Code now puts a note before it. A background architect's hand-back behind that note is read as its advice again.
 - A pane teammate that writes a plan request or refuses a shutdown is working, as one that writes a message is; one that shut down stays so, whatever arrives from it later.
@@ -28,6 +28,9 @@
 - A task assigned and completed (or deleted) in one TaskUpdate leaves its owner waiting.
 - A mailbox notice counts only for the teammate whose mailbox sent it: one that names another teammate changes no one.
 - A stored team entry that can't be read (after a version change or a broken write) is dropped instead of breaking the pane.
+- An assignment notice gives its task the subject it carries, as a completion notice does; a pane teammate may have renamed the task unseen.
+- A teammate addressed by its full id in SendMessage reads as its name, so it is woken and its message shows.
+- A completion notice changes the board only when its sender is a current teammate: a departed one's late notice after a resume is not this team's.
 - The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.
 
 ## Liveroom 0.3.0

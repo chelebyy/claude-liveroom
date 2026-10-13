@@ -167,7 +167,7 @@ test('the task list: created, updated, owned, deleted, and replaced by a TaskLis
   expect(ts.find(t => t.id === '9')).toEqual({ id: '9', subject: '', status: 'completed', owner: null })
   ts = updateTask(ts, { taskId: '2', status: 'deleted' })
   expect(ts.map(t => t.id)).toEqual(['1', '9'])
-  ts = assignTask(ts, '1', 'ignored', 'critic')
+  ts = assignTask(ts, '1', '', 'critic') // a notice without a subject keeps the known one
   expect([ts[0]?.owner, ts[0]?.subject]).toEqual(['critic', 'probe task one'])
   // A TaskList answer is the whole list; it keeps subjects the pane knew.
   ts = listTasks(ts, [
@@ -248,6 +248,16 @@ test('a long task list drops the oldest done first, so work in progress stays', 
   expect(ts.filter(t => t.status === 'in_progress').length).toBe(5)
   expect(ts.at(-1)?.id).toBe('p1')
   expect(ts.find(t => t.id === 'd0')).toBeUndefined() // the oldest done went first
+  // A list of open work alone has nothing to drop: all of it stays, past 200.
+  let open: TeamTask[] = []
+  for (let i = 1; i <= 201; i++) open = addTask(open, { id: String(i), subject: `t${i}` })
+  expect([open.length, open[0]?.id]).toEqual([201, '1'])
+})
+
+test('an assignment notice gives the task its current subject', () => {
+  const ts = addTask([], { id: '1', subject: 'old name' })
+  expect(assignTask(ts, '1', 'new name', 'scout')[0]).toMatchObject({ subject: 'new name', owner: 'scout' })
+  expect(assignTask(ts, '1', '', 'scout')[0]?.subject).toBe('old name')
 })
 
 test('the board shows work in progress first, then what waits, then the newest done', () => {
@@ -291,7 +301,7 @@ const engine = (on: On, statuses?: string[]) => {
   on('session.receive', (_$, e) => (e.text.startsWith('[consume]') ? { consumed: 'a later hook' } : { text: e.text.replace('[rewrite] ', '') }))
   on('agent.spawn', (_$, e) =>
     e.isTeammate
-      ? { model: e.model ?? e.parentModel, agentId: e.name === 'critic' ? 'critic@session-t' : `tm-${e.name}`, teammateId: `${e.name}@session-t` }
+      ? { model: e.model ?? e.parentModel, agentId: e.name === 'critic' || e.name?.startsWith('ghp_') ? `${e.name}@session-t` : `tm-${e.name}`, teammateId: `${e.name}@session-t` }
       : { model: e.model ?? 'claude-opus-5-5', agentId: `sub-${e.description}` },
   )
   on('tool.call', (_$, e) => {
@@ -602,6 +612,30 @@ test('a notice that names another teammate than its mailbox sender changes no on
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /^2 working · 0 idle$/ })).toBeDefined()
   expect(await ui.find({ text: /^■ $|^✗ $/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a pane teammate addressed by its full id is woken, under its masked name', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  const raw = 'ghp_abcdefghijklmnop'
+  await spawnTeammate($, raw)
+  await $.session.receive({ origin: { kind: 'peer', teammate: raw, isVerified: false }, text: `{"type":"idle_notification","from":"${raw}"}` } as never)
+  await $.tool.call({ tool: 'SendMessage', to: `${raw}@session-t`, message: 'one more check', tool_use_id: 's1' } as never)
+  const ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+  expect(await ui.find({ text: /^1 working · 0 idle$/ })).toBeDefined()
+  expect(await ui.find({ text: /^one more check$/ })).toBeDefined()
+  expect(await ui.find({ text: /abcdefgh/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a completion notice from no current teammate leaves the board alone', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await $.tool.call({ tool: 'TaskCreate', subject: 'audit auth', description: 'd', tool_use_id: 'k1' } as never)
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'gone', isVerified: false }, text: '{"type":"task_completed","from":"gone","taskId":"1","taskSubject":"audit auth"}' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^0\/1 done$/ })).toBeDefined()
   await ui.unmount()
 })
 

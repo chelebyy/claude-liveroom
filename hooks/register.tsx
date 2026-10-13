@@ -1472,7 +1472,9 @@ async function isListed($: EngineInterface, id: string): Promise<boolean> {
 async function noteMessage($: EngineInterface, cfg: Config, e: { agentId?: string; to?: unknown; message?: unknown; summary?: unknown }) {
   const was = teamOf(await read($, team))
   const from = e.agentId ? (memberOf(was, e.agentId)?.name ?? 'agent') : LEAD
-  const msg = messageOf(e, from, await $.clock.now())
+  // A teammate addressed by its id reads as its name, as the roster keeps it.
+  const to = typeof e.to === 'string' ? (memberNamed(was, e.to)?.name ?? e.to) : e.to
+  const msg = messageOf({ ...e, to }, from, await $.clock.now())
   if (!msg || !isTeamMessage(was, msg)) return // another session's traffic
   await update($, team, t => applyMessage(teamOf(t), msg))
   const sender = memberNamed(was, from)
@@ -1506,7 +1508,8 @@ async function noteDelivery($: EngineInterface, sender: string, isVerified: bool
     const owner = to ? memberOf(was, to)?.name : LEAD
     if (owner) await update($, tasks, ts => assignTask(tasksOf(ts), notice.taskId, notice.subject, owner))
   } else if (notice?.kind === 'done') {
-    await update($, tasks, ts => completeTask(tasksOf(ts), notice.taskId, notice.subject, notice.from))
+    // Only a current teammate's: a departed one's late notice (after a resume, which keeps the tasks) is not this team's.
+    if (member) await update($, tasks, ts => completeTask(tasksOf(ts), notice.taskId, notice.subject, notice.from))
   } else if (notice && member) {
     await update($, team, t => setState(teamOf(t), member.id, notice.kind, at))
     if (notice.kind === 'ended' && member.state !== 'ended') await say($, shorten(member.name, 14), tx('shut down'), 'info', member.id)

@@ -119,7 +119,7 @@ Liveroom only watches. Every hook passes its event on unchanged: it never denies
 | whether a teammate whose turn was cut short is still on the session's agent list | `$.agent.list()` |
 | deliveries from an agent team's mailboxes: who sent them, and their text, for a one-line summary or a notice (went idle, shut down, took a task) | `session.receive` |
 
-What it keeps: short summaries (a tool name plus a path or command, a message's summary or first line, with credentials masked) and counters in session state, which ends with the session. It shows a toast when a subagent runs on the main model because its spawn named none. It makes **no** network requests, runs no processes, reads and writes no files (it asks Claude Code for its merged settings only to read `language`), stores nothing across sessions, and calls no model. `claude plugin validate .` prints exactly what it hooks and calls.
+What it keeps: short summaries (a tool name plus a path or command, a message's summary or first line, teammates' names, with credentials masked; agent ids stay as Claude Code gives them, since every event names its loop by one) and counters in session state, which ends with the session. It shows a toast when a subagent runs on the main model because its spawn named none. It makes **no** network requests, runs no processes, reads and writes no files (it asks Claude Code for its merged settings only to read `language`), stores nothing across sessions, and calls no model. `claude plugin validate .` prints exactly what it hooks and calls.
 
 ## What is inferred, not measured
 
@@ -178,7 +178,7 @@ In `/config`, or under `pluginConfigs["liveroom"].options` in `settings.json`:
 | [`hooks/rail.tsx`](hooks/rail.tsx), [`hooks/elapsed.tsx`](hooks/elapsed.tsx) | surface modules: animated connectors and live clocks that redraw only themselves, on the surface's own frame clock |
 | [`types/index.d.ts`](types/index.d.ts) | the state contract |
 | [`hooks/room/`](hooks/room) | Liveroom's additions: Codex call parsing, tallies, the agent team and its task list, the models, codex, skills, team and tasks panels, and the Turkish table, as pure functions |
-| [`tests/`](tests) | 112 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
+| [`tests/`](tests) | 115 tests: pure behaviour, plus drawings mounted on every surface at 40–120 columns |
 
 State lives in `$.state` atoms. Every read is merged over defaults, so a missing or older field never breaks the pane; an update that changes the state's shape may still reset its counters once. New to mods? Start with [Claude Code mods](https://claude.com/blog/claude-code-mods) and [Getting started with Claude Code mods](https://claude.dev/blog/getting-started-with-claude-code-mods/).
 
