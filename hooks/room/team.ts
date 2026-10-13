@@ -110,27 +110,63 @@ export function rosterRows(members: readonly TeamMember[], n: number): TeamMembe
   return [...live, ...(room > 0 ? endedOf(members).slice(-room) : [])]
 }
 
-/**
- * A member's state changes; one that ended stays ended, as a notice can arrive after its shutdown,
- * and an unchanged state keeps its clock.
- */
-export function setState(team: Team, id: string, state: MemberState, at: number): Team {
-  return {
-    ...team,
-    members: boundMembers(team.members.map(m => (m.id === id && m.state !== 'ended' && m.state !== state ? { ...m, state, since: at } : m))),
-  }
-}
+// ---------------------------------------------------------------- transitions
 
 /**
- * A member seen working: a step of its own, or a message that brings it back. Claude Code revives an
- * in-process teammate that a message reaches after it stopped, so this reopens one that ended.
+ * What moves a member to another state, each something the lead's process sees:
+ * - `step`: a step of its own, the first of a turn. Claude Code revives an in-process teammate that a
+ *   message reaches after it stopped, so a step reopens even one that ended.
+ * - `wake`: a message, a plan answer or a shutdown request reaching it. It brings back an in-process
+ *   teammate that stopped, not a pane's, whose process is gone.
+ * - `wrote`: a pane teammate writing, anything but its shutdown approval: it is in a turn.
+ * - `assigned`: a task the lead or another teammate gave it.
+ * - `idle`, `failed`: its turn ended waiting for a message, or on an error.
+ * - `ended`: it shut down, or stopped without the handshake.
  */
-export function reopen(team: Team, id: string, at: number): Team {
-  return { ...team, members: team.members.map(m => (m.id === id && m.state !== 'working' ? { ...m, state: 'working', since: at } : m)) }
+export type Cause = 'step' | 'wake' | 'wrote' | 'assigned' | 'idle' | 'failed' | 'ended'
+
+const W: MemberState = 'working'
+const I: MemberState = 'idle'
+const F: MemberState = 'failed'
+const E: MemberState = 'ended'
+
+/**
+ * The state each cause leaves a member in, by the state it was in. One that ended stays so, as a
+ * notice can arrive after its shutdown, but for a step of its own or a message reviving it in process.
+ */
+export const TRANSITIONS: Readonly<Record<Cause, readonly [working: MemberState, idle: MemberState, failed: MemberState, ended: MemberState, endedPane: MemberState]>> = {
+  step: [W, W, W, W, W],
+  wake: [W, W, W, W, E],
+  wrote: [W, W, W, E, E],
+  assigned: [W, W, W, E, E],
+  idle: [I, I, I, E, E],
+  failed: [F, F, F, E, E],
+  ended: [E, E, E, E, E],
 }
+
+/** The state a cause leaves a member in. */
+export function nextState(m: TeamMember, cause: Cause): MemberState {
+  const column = m.state === 'working' ? 0 : m.state === 'idle' ? 1 : m.state === 'failed' ? 2 : m.isPane ? 4 : 3
+  return TRANSITIONS[cause][column]
+}
+
+/** A member moved by a cause; a state it keeps keeps its clock, and the roster stays bounded. */
+export function move(team: Team, id: string, cause: Cause, at: number): Team {
+  const members = team.members.map(m => {
+    const state = m.id === id ? nextState(m, cause) : m.state
+    return state === m.state ? m : { ...m, state, since: at }
+  })
+  return { ...team, members: boundMembers(members) }
+}
+
+/** A member's state set, as its turn's end, a notice or a pane's words say; one that ended stays so. */
+export const setState = (team: Team, id: string, state: MemberState, at: number): Team => move(team, id, state === 'working' ? 'wrote' : state, at)
+
+/** A member seen working, by a step of its own: even one that ended, as a message revives it. */
+export const reopen = (team: Team, id: string, at: number): Team => move(team, id, 'step', at)
 
 /** How a member's turn ending leaves it: waiting for a message, or failed on an error. */
-export const turnEndState = (reason: string): MemberState => (reason === 'error' ? 'failed' : 'idle')
+export const turnEndState = (reason: string): 'idle' | 'failed' => (reason === 'error' ? 'failed' : 'idle')
 
 /** The agent list's statuses for a loop still there: not started, in a turn, held, or waiting for a message. */
 const LIVE = new Set(['pending', 'running', 'waiting', 'idle'])
@@ -203,10 +239,9 @@ export function applyMessage(team: Team, msg: TeamMessage, fromId?: string): Tea
   }
   // A plan answer wakes its teammate too (approved, it implements; refused, it plans again), and so
   // does a shutdown request, which it answers.
-  const isRevived = to?.state === 'ended' && !to.isPane
   const wakes = msg.kind === 'text' || msg.kind === 'plan-response' || msg.kind === 'shutdown-request'
-  if (wakes && to && to.state !== 'working' && (to.state !== 'ended' || isRevived)) next = reopen(next, to.id, msg.at)
-  if (msg.kind === 'shutdown-response' && msg.approve === true && sender) next = setState(next, sender.id, 'ended', msg.at)
+  if (wakes && to) next = move(next, to.id, 'wake', msg.at)
+  if (msg.kind === 'shutdown-response' && msg.approve === true && sender) next = move(next, sender.id, 'ended', msg.at)
   return next
 }
 
@@ -260,6 +295,128 @@ export function noticeOf(text: string, sender: string | null): TeamNotice | null
   // A pane teammate's TaskUpdate never reaches this process: its completion notice is the signal.
   if (o.type === 'task_completed' && taskId && from) return { kind: 'done', taskId, subject: str(o.taskSubject) ?? '', from }
   return null
+}
+
+// ---------------------------------------------------------------- the team's events
+
+/** A mailbox delivery: who the mailbox says sent it, whether this process wrote it, its text, and the loop it reached (none for the lead). */
+export type Delivery = { type: 'deliver'; sender: string; isVerified: boolean; text: string; toId?: string; at: number }
+
+/**
+ * What the lead's process sees of its team, each event as a hook hands it over:
+ * - `join`: a teammate's spawn answered; `endedAt` when its first turn had already ended by then.
+ * - `step`: a step of a teammate's loop. `turnEnd`: its turn ended; `isListed` whether the agent list
+ *   still has it, read for a turn cut short.
+ * - `send`: a SendMessage call that went out, from the lead or the loop `fromId`.
+ * - `deliver`: a mailbox delivery. `assign`: a TaskUpdate that gave a task still to do to `owner`.
+ * - `clear`: `/clear` or `/liveroom reset`. `end`: the session ended otherwise.
+ */
+export type TeamEvent =
+  | { type: 'join'; id: string; teammateId: string; model: string; at: number; endedAt?: number }
+  | { type: 'step'; id: string; index: number; at: number }
+  | { type: 'turnEnd'; id: string; reason: string; isListed: boolean; at: number }
+  | { type: 'send'; fromId?: string; to?: unknown; message?: unknown; summary?: unknown; at: number }
+  | Delivery
+  | { type: 'assign'; owner: string; byId?: string; at: number }
+  | { type: 'clear' }
+  | { type: 'end' }
+
+/** A member's state before and after an event: `null` where it was not, or is no more, on the roster. */
+export type Change = { id: string; name: string; from: MemberState | null; to: MemberState | null }
+
+/** The members whose state an event changed, joined or dropped. */
+function changesOf(before: Team, after: Team): Change[] {
+  const was = new Map(before.members.map(m => [m.id, m] as const))
+  const now = new Map(after.members.map(m => [m.id, m] as const))
+  const ids = [...new Set([...was.keys(), ...now.keys()])]
+  return ids.flatMap(id => {
+    const a = was.get(id)
+    const b = now.get(id)
+    return a?.state === b?.state ? [] : [{ id, name: (b ?? a)!.name, from: a?.state ?? null, to: b?.state ?? null }]
+  })
+}
+
+/**
+ * The teammates an event shut down by their own answer or a notice: those it moved to ended, and those
+ * it ended and the roster bound then let go at once. A turn cut short is read from the agent list
+ * instead, and a clear or an end only lets teammates go.
+ */
+export function shutdownsOf(ev: TeamEvent, changes: readonly Change[]): Change[] {
+  if (ev.type !== 'send' && ev.type !== 'deliver') return []
+  return changes.filter(c => c.to === 'ended' || (c.to === null && c.from !== null && c.from !== 'ended'))
+}
+
+/** Whether a delivery assigns or completes a task: the only ones that change the task list. */
+export function isTaskNotice(ev: Delivery): boolean {
+  const kind = noticeOf(ev.text, ev.sender)?.kind
+  return kind === 'assigned' || kind === 'done'
+}
+
+/** The team after one of its events, with the members it changed. */
+export function reduceTeam(team: Team, ev: TeamEvent): { team: Team; changes: Change[] } {
+  const after = teamAfter(team, ev)
+  return { team: after, changes: changesOf(team, after) }
+}
+
+function teamAfter(team: Team, ev: TeamEvent): Team {
+  switch (ev.type) {
+    case 'join': {
+      const joined = joinTeam(team, ev, ev.at)
+      return ev.endedAt === undefined ? joined : move(joined, ev.id, 'idle', ev.endedAt)
+    }
+    case 'step':
+      return ev.index === 0 ? move(team, ev.id, 'step', ev.at) : team
+    case 'turnEnd':
+      // One stopped without the shutdown handshake ends its turn cut short and leaves the agent list.
+      return move(team, ev.id, ev.reason === 'aborted' && !ev.isListed ? 'ended' : turnEndState(ev.reason), ev.at)
+    case 'send': {
+      // Another agent of the session (a subagent) is not the team's, whatever a teammate is named.
+      const author = ev.fromId ? memberOf(team, ev.fromId) : undefined
+      if (ev.fromId && !author) return team
+      // A teammate addressed by its id reads as its name, as the roster keeps it.
+      const to = typeof ev.to === 'string' ? (memberNamed(team, ev.to)?.name ?? ev.to) : ev.to
+      const msg = messageOf({ to, message: ev.message, summary: ev.summary }, author?.name ?? LEAD, ev.at)
+      return msg && isTeamMessage(team, msg) ? applyMessage(team, msg, author?.id) : team
+    }
+    case 'deliver':
+      return delivered(team, ev)
+    case 'assign': {
+      // One that took the task itself is already at work.
+      const member = memberNamed(team, ev.owner)
+      return member && member.id !== ev.byId ? move(team, member.id, 'assigned', ev.at) : team
+    }
+    case 'clear':
+      // `/clear` clears the lead's conversation, not its teammates: only a pane teammate that shut down
+      // goes, as an in-process one can be brought back by a message.
+      return { members: team.members.filter(m => !(m.state === 'ended' && m.isPane)), messages: [] }
+    case 'end':
+      // Claude Code brings none of a session's teammates back.
+      return { members: [], messages: [] }
+  }
+}
+
+/**
+ * A mailbox delivery: a harness notice sets its teammate's state; a message the harness here didn't
+ * write is a pane teammate's, which no tool call showed: its words (JSON included), or a protocol
+ * request or answer.
+ */
+function delivered(team: Team, ev: Delivery): Team {
+  const notice = noticeOf(ev.text, ev.sender)
+  const state = notice && notice.kind !== 'assigned' && notice.kind !== 'done' ? notice : null
+  const member = memberNamed(team, state ? state.from : ev.sender)
+  // One delivered to another agent of the session (a subagent) is not the team's.
+  const recipient = ev.toId ? memberOf(team, ev.toId) : undefined
+  let next = team
+  if (!ev.isVerified && !isNotice(ev.text) && (!ev.toId || recipient)) {
+    const msg = messageOf({ to: recipient?.name ?? LEAD, message: protocolOf(ev.text) ?? ev.text }, ev.sender, ev.at)
+    if (msg && isTeamMessage(team, msg)) {
+      // A pane teammate that writes is in a turn, unless it agrees to shut down.
+      const isShutdown = msg.kind === 'shutdown-response' && msg.approve === true
+      next = applyMessage(next, msg)
+      if (member && !isShutdown) next = move(next, member.id, 'wrote', ev.at)
+    }
+  }
+  return state && member ? move(next, member.id, state.kind, ev.at) : next
 }
 
 // ---------------------------------------------------------------- tasks
@@ -369,4 +526,36 @@ export function boardRows(tasks: readonly TeamTask[], n: number): TeamTask[] {
   const open = [...of('in_progress'), ...of('pending')].slice(0, n)
   const room = n - open.length
   return [...open, ...(room > 0 ? of('completed').slice(-room) : [])]
+}
+
+/**
+ * What changes the task list: a TaskCreate's answer, a TaskUpdate that succeeded, a TaskList's
+ * answer, and a mailbox delivery whose notice assigns or completes a task.
+ */
+export type TaskEvent =
+  | { type: 'create'; task: { id?: unknown; subject?: unknown } }
+  | { type: 'update'; input: { taskId?: unknown; status?: unknown; owner?: unknown; subject?: unknown } }
+  | { type: 'list'; listed: unknown }
+  | Delivery
+
+/** The task list after one of its events; `team` is the team as the event found it. */
+export function reduceTasks(tasks: readonly TeamTask[], ev: TaskEvent, team: Team = { members: [], messages: [] }): TeamTask[] {
+  switch (ev.type) {
+    case 'create':
+      return addTask(tasks, ev.task)
+    case 'update':
+      return updateTask(tasks, ev.input)
+    case 'list':
+      return Array.isArray(ev.listed) ? listTasks(tasks, ev.listed) : [...tasks]
+    case 'deliver': {
+      const notice = noticeOf(ev.text, ev.sender)
+      const sender = memberNamed(team, ev.sender)
+      // Only from this team, its lead or a current teammate: not a departed one's late notice.
+      if (notice?.kind === 'assigned' && (sender || isLead(ev.sender))) {
+        const owner = ev.toId ? memberOf(team, ev.toId)?.name : LEAD
+        return owner ? assignTask(tasks, notice.taskId, notice.subject, owner) : [...tasks]
+      }
+      return notice?.kind === 'done' && sender ? completeTask(tasks, notice.taskId, notice.subject, notice.from) : [...tasks]
+    }
+  }
 }
