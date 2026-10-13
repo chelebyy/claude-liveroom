@@ -110,6 +110,15 @@ test('mailbox notices: idle, shutdown and task assignment; a model\'s own words 
   expect(messageOf({ to: 'scout', message: { type: 'toString' } }, LEAD, 1)).toBeNull()
 })
 
+test('a message from a teammate\'s agent id counts for that member, not a newer one under its name', () => {
+  let t = joinTeam(EMPTY, { id: 'a1', teammateId: 'scout@x', model: '' }, 0)
+  t = joinTeam(setState(t, 'a1', 'idle', 1), { id: 'a2', teammateId: 'scout@x', model: '' }, 2) // respawned under the name
+  const bye = messageOf({ to: LEAD, message: { type: 'shutdown_response', request_id: 'r', approve: true } }, 'scout', 3)!
+  const byId = applyMessage(t, bye, 'a1')
+  expect(byId.members.map(m => [m.id, m.state, m.sent])).toEqual([['a1', 'ended', 1], ['a2', 'working', 0]])
+  expect(applyMessage(t, bye).members.map(m => m.state)).toEqual(['idle', 'ended']) // by name alone: the newest
+})
+
 test('a message brings back a teammate whose turn failed, or an in-process one that stopped, not a pane one', () => {
   let t = joinTeam(EMPTY, { id: 'a1', teammateId: 'scout@x', model: '' }, 0)
   t = joinTeam(t, { id: 'critic@x', teammateId: 'critic@x', model: '' }, 0)

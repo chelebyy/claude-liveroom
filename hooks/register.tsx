@@ -1482,9 +1482,8 @@ async function noteMessage($: EngineInterface, cfg: Config, e: { agentId?: strin
   const to = typeof e.to === 'string' ? (memberNamed(was, e.to)?.name ?? e.to) : e.to
   const msg = messageOf({ ...e, to }, from, await $.clock.now())
   if (!msg || !isTeamMessage(was, msg)) return // another session's traffic
-  await update($, team, t => applyMessage(teamOf(t), msg))
-  const sender = memberNamed(was, from)
-  if (msg.kind === 'shutdown-response' && msg.approve === true && sender) await say($, shorten(sender.name, 14), tx('shut down'), 'info', sender.id)
+  await update($, team, t => applyMessage(teamOf(t), msg, author?.id))
+  if (msg.kind === 'shutdown-response' && msg.approve === true && author) await say($, shorten(author.name, 14), tx('shut down'), 'info', author.id)
   await refreshStatus($, cfg) // a message may wake a teammate or end one
 }
 

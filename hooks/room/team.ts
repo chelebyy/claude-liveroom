@@ -191,9 +191,11 @@ export function isTeamMessage(team: Team, msg: TeamMessage): boolean {
  * A message joins the newest 20 and counts toward its sender. A text message wakes the teammate it
  * reaches, which a pane's turns can't say themselves: one waiting, one whose turn failed, and an
  * in-process one that stopped, which Claude Code brings back. An approved shutdown ends its sender.
+ * `fromId` names the sender exactly when the call carried its agent id: a teammate respawned under
+ * the name is another member.
  */
-export function applyMessage(team: Team, msg: TeamMessage): Team {
-  const sender = memberNamed(team, msg.from)
+export function applyMessage(team: Team, msg: TeamMessage, fromId?: string): Team {
+  const sender = fromId ? memberOf(team, fromId) : memberNamed(team, msg.from)
   const to = memberNamed(team, msg.to)
   let next: Team = {
     members: team.members.map(m => (m === sender ? { ...m, sent: m.sent + 1 } : m)),
