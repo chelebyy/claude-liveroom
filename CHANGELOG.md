@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- README: says why a teammate in a pane of its own shows its state and messages but not its steps, tool calls, context or cost. Carrying them over would need a store two processes share, and Liveroom writes none.
+
 ## Liveroom 0.5.0
 
 - A teammate outside the lead's process (in a tmux pane, or `auto` inside tmux) that shuts down with no notice reaching the lead no longer stays working: the session's agent list, read when the lead's turn ends and after each delivery, shows it ended or no longer lists it. Found in a live tmux session on Claude Code 2.1.296.
