@@ -94,6 +94,15 @@ export function reopen(team: Team, id: string, at: number): Team {
 /** How a member's turn ending leaves it: waiting for a message, or failed on an error. */
 export const turnEndState = (reason: string): MemberState => (reason === 'error' ? 'failed' : 'idle')
 
+/** The agent list's statuses for a loop still there: not started, in a turn, held, or waiting for a message. */
+const LIVE = new Set(['pending', 'running', 'waiting', 'idle'])
+
+/**
+ * Whether an agent-list status is one of a loop still there. Any other (`completed`, `failed`, `killed`,
+ * or one a later Claude Code adds) reads as gone, which a turn of the teammate's own undoes.
+ */
+export const isLive = (status: string) => LIVE.has(status)
+
 /**
  * A SendMessage call as a message line, or null for one with no recipient or an unknown shape. A
  * text message shows its sender's summary, else its first line, with credentials masked.

@@ -63,7 +63,7 @@ import type { LanguageOption, T } from './room/i18n'
 import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
-import { LEAD, addTask, applyMessage, assignTask, completeTask, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
+import { LEAD, addTask, applyMessage, assignTask, completeTask, isLive, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -1457,10 +1457,10 @@ async function endTeamTurn($: EngineInterface, id: string, reason: string): Prom
   return true
 }
 
-/** Whether an agent is still running or waiting on the session's list; true when the list can't be read. */
+/** Whether an agent is still there on the session's list, by a status known to be live; true when the list can't be read. */
 async function isListed($: EngineInterface, id: string): Promise<boolean> {
   try {
-    return (await $.agent.list()).some(a => a.id === id && a.status !== 'completed' && a.status !== 'failed' && a.status !== 'killed')
+    return (await $.agent.list()).some(a => a.id === id && isLive(a.status))
   } catch {
     return true
   }
@@ -1492,9 +1492,12 @@ async function noteDelivery($: EngineInterface, sender: string, isVerified: bool
   // words (JSON included), or a protocol request or answer. The mailbox's own notices are not one.
   if (!isVerified && !isNotice(text)) {
     const msg = messageOf({ to: to ? (memberOf(was, to)?.name ?? 'agent') : LEAD, message: protocolOf(text) ?? text }, sender, at)
-    // A pane teammate that writes words is in a turn.
+    // A pane teammate that writes is in a turn, a plan request or a shutdown refusal included, unless
+    // it agrees to shut down. One that shut down stays so: its process is gone.
     if (msg && isTeamMessage(was, msg)) {
-      await update($, team, t => (msg.kind === 'text' && member ? reopen(applyMessage(teamOf(t), msg), member.id, at) : applyMessage(teamOf(t), msg)))
+      const isShutdown = msg.kind === 'shutdown-response' && msg.approve === true
+      const writer = member && member.state !== 'ended' && !isShutdown ? member : null
+      await update($, team, t => (writer ? reopen(applyMessage(teamOf(t), msg), writer.id, at) : applyMessage(teamOf(t), msg)))
     }
   }
   if (notice?.kind === 'assigned') {

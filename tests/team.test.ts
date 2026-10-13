@@ -12,6 +12,7 @@ import {
   assignTask,
   completeTask,
   boardRows,
+  isLive,
   isTeamMessage,
   joinTeam,
   listTasks,
@@ -112,6 +113,12 @@ test('a message brings back a teammate whose turn failed, or an in-process one t
   // A step of its own reopens a teammate the pane had marked shut down.
   t = setState(t, 'a1', 'ended', 40)
   expect(reopen(t, 'a1', 50).members[0]).toMatchObject({ state: 'working', since: 50 })
+})
+
+test('the agent list reads a teammate as still there only by a status known to be live', () => {
+  expect(['pending', 'running', 'waiting', 'idle'].map(isLive)).toEqual([true, true, true, true])
+  // Ended, and any status a later Claude Code adds: a turn of its own brings the teammate back.
+  expect(['completed', 'failed', 'killed', 'stopped', ''].map(isLive)).toEqual([false, false, false, false, false])
 })
 
 test('the task list: created, updated, owned, deleted, and replaced by a TaskList answer', () => {
@@ -361,6 +368,29 @@ test('a pane teammate\'s JSON words are a message; a plan request shows; the mai
   await $.session.receive({ origin: from, text: '{"type":"teammate_terminated","from":"critic"}' } as never)
   ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
   expect(await ui.find({ text: /^■ $/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a pane teammate that writes a plan request works; one that agreed to shut down stays shut down', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  const statuses: string[] = []
+  engine(on, statuses)
+  await $.session.start(START)
+  await spawnTeammate($, 'critic')
+  const from = { kind: 'peer', teammate: 'critic', isVerified: false }
+  await $.session.receive({ origin: from, text: '{"type":"idle_notification","from":"critic","idleReason":"available"}' } as never)
+  expect(statuses.at(-1)).toContain('team 0/1')
+  // Someone typed in its pane: the request proves a turn, though no message came first.
+  await $.session.receive({ origin: from, text: '{"type":"plan_approval_request","requestId":"p1","from":"critic","planFilePath":"/p.md"}' } as never)
+  expect(statuses.at(-1)).toContain('team 1/1')
+  let ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^1 working · 0 idle$/ })).toBeDefined()
+  await ui.unmount()
+  await $.session.receive({ origin: from, text: '{"type":"shutdown_response","request_id":"s1","approve":true}' } as never)
+  // A late line from a pane that shut down doesn't bring it back: its process is gone.
+  await $.session.receive({ origin: from, text: 'one last note' } as never)
+  ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^■ $/ })).toBeDefined()
+  expect(await ui.find({ text: /^0 working · 0 idle$/ })).toBeDefined()
   await ui.unmount()
 })
 
