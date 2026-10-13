@@ -2,6 +2,7 @@
 // and the tallies behind the models and skills panels. Nothing here touches the engine.
 
 import type { CodexRun, RunStatus } from '../../types'
+import { nameOf } from './team'
 
 export type { CodexRun, RunStatus }
 
@@ -451,13 +452,21 @@ export function noteRule(rules: Readonly<Record<string, string>>, id: string, no
 
 /**
  * A tagged turn opener's tag and sender, read as Flightdeck's promptLine reads them, so the log can
- * name them in the pane's language; null for the user's own words.
+ * name them in the pane's language; null for the user's own words. The sender is masked as the
+ * roster masks a teammate's name before it is cut to the log's width.
  */
 export function openerOf(text: string): { label: string; from: string | null } | null {
   const tag = /^\s*<([a-z][\w-]*)/i.exec(text)?.[1]
   if (!tag) return null
-  return { label: tag.replace(/[-_]/g, ' '), from: /\bfrom="([^"]+)"/.exec(text)?.[1]?.slice(0, 8) ?? null }
+  const from = /\b(?:from|teammate_id)="([^"]+)"/.exec(text)?.[1]
+  return { label: tag.replace(/[-_]/g, ' '), from: from ? nameOf(from).slice(0, 8) : null }
 }
+
+/**
+ * A turn opener without the note Claude Code puts before another agent's or session's message
+ * ("Another Claude session sent a message:", seen on 2.1.295), so its tag leads as the readers expect.
+ */
+export const withoutPeerNote = (text: string) => text.replace(/^\s*Another Claude session sent a message:[ \t]*\n(?=\s*<)/, '')
 
 export type Tally = Record<string, number>
 

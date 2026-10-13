@@ -1,5 +1,46 @@
 # Changelog
 
+## Liveroom 0.4.0
+
+- **team** panel: an agent team's teammates, those at work first, ● working, ○ idle with how long it has waited, ■ shut down, ✗ failed, with the task each works on; ▣ marks one in a terminal pane of its own. Below them, the last three messages between the lead and its teammates, shutdown and plan answers included, each a summary or first line with credentials masked.
+- **tasks** panel: the task list the Task tools keep, work in progress first, then what waits, then the newest done, each with its owner.
+- A teammate no longer shows as a finished agent card after its first turn: teammates leave the agent cards for the team panel, so the agents header and the status line's `agents` count leave them out. The status line counts working teammates (`team 1/2`), and the inline summary gives teammates still running a row, showing two agents instead of three when there is one, unless `panels` leaves `team` out.
+- A teammate whose spawn names no model and runs on the lead's gets the delegation rule's ⚠ in the team panel and the summary, as an agent card did.
+- A teammate stopped without the shutdown handshake, whose turn is cut short and who has left the session's agent list or is listed as ended, shows ■; one interrupted but still running waits. The status line follows a teammate waking or stopping.
+- A message or a turn of its own brings back an in-process teammate that stopped, as Claude Code revives it; an idle notice for a turn that ended on an API error marks the teammate failed.
+- `/clear` and `/liveroom reset` keep teammates, their ⚠ and the task list, since `/clear` clears only the lead's conversation; the team's messages go, and so does a pane teammate that shut down.
+- Teammates in panes of their own run outside the lead's process. Their state is read from their messages and the team's idle, shutdown and termination notices; their plan requests and plan and shutdown answers show as such, and anything else they write, JSON included, as a message. See "What is inferred".
+- The team panel shows only the team's messages, between the lead and a teammate or two teammates: SendMessage to or from another session stays out. A plan answer, a shutdown request, or a task assigned to it with TaskUpdate wakes a teammate like a message.
+- A session that ends other than by `/clear` (a resume, a branch, an exit) clears its team, as Claude Code brings none of its teammates back; the task list stays.
+- Task subjects, task owners and teammates' names are stored with credentials masked, as every other text from a tool input; a name masked that way carries a short digest (`•••#1x2y3z`), so it still finds its own teammate and task, and two names that mask alike stay two teammates.
+- A teammate respawned under its address drops its old ⚠ unless the new spawn earns one; the inline summary lists working teammates first.
+- A mailbox delivery another mod consumes doesn't count, and one it rewrites is read as rewritten.
+- A pane teammate's task completion notice marks its task done on the board, under the subject and owner the notice gives.
+- The status line's team total counts every teammate not shut down, a failed one included.
+- A session that ends other than by `/clear` takes its teammates' ⚠ notes with them.
+- Requires Claude Code 2.1.289 or later, which gives mods teammate spawns.
+- The roster never drops a teammate still running: past 24 it drops the ones that shut down earliest, and the team panel shows the latest to shut down, by when they did, not by when they joined.
+- The task list keeps 200 tasks by dropping the oldest done; every task in progress or waiting stays, past 200 if it must.
+- A teammate whose first step comes before its spawn's answer leaves the other-loops row when it joins, also when it joins while that step's request runs. One whose first turn already ended by then joins waiting, not working.
+- A message from another agent or session reaches the log as its tag and sender (`teammate message from scout`), not as your prompt: Claude Code now puts a note before it. A background architect's hand-back behind that note is read as its advice again.
+- A pane teammate that writes a plan request or refuses a shutdown is working, as one that writes a message is; one that shut down stays so, whatever arrives from it later.
+- A teammate cut short counts as still there only while the agent list gives it a live status (`pending`, `running`, `waiting` or `idle`); any other, one a later Claude Code adds included, shows ■ until a turn of its own brings it back.
+- A task assigned and completed (or deleted) in one TaskUpdate leaves its owner waiting.
+- A mailbox notice counts only for the teammate whose mailbox sent it: one that names another teammate changes no one.
+- A stored team entry that can't be read (after a version change or a broken write) is dropped instead of breaking the pane.
+- An assignment notice gives its task the subject it carries, as a completion notice does; a pane teammate may have renamed the task unseen.
+- A teammate addressed by its full id in SendMessage reads as its name, so it is woken and its message shows.
+- A completion notice changes the board only when its sender is a current teammate: a departed one's late notice after a resume is not this team's.
+- The turn receipt counts the teammates a turn spawned among its agents, though they have no card.
+- An assignment notice changes the board only when it comes from the lead or a current teammate.
+- A task that completes moves after those done before it, so the board's newest done and the 200-task bound follow the order tasks finished in; a TaskList answer keeps that order for the done tasks the pane saw finish.
+- A log line's sender for a tagged turn opener is masked as a teammate's name is before it is cut to width.
+- A pane teammate's JSON whose `type` is a name every object answers to (`constructor`) shows as its words, not as a protocol message; your own prompt that starts like Claude Code's peer note is logged whole.
+- A teammate's row shows a task it owns that waits when it owns none in progress, as a pane teammate's own start never reaches the lead. A TaskList answer puts a task the pane held open and now finds done after the earlier completions.
+- A SendMessage or a delivery involving an agent outside the team (an ordinary subagent) stays out of the team panel, even beside a teammate named `agent`.
+- A teammate's SendMessage counts for the member whose agent id made it, so a late message from one respawned under its name can't change the replacement.
+- The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.
+
 ## Liveroom 0.3.0
 
 - `language` option: `auto` (the default) follows Claude Code's own `language` setting, Turkish when it reads Turkish and English otherwise; `en` and `tr` pick one.

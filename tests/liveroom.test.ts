@@ -132,7 +132,7 @@ test('consults open, close by id, and draw on a shared timeline', () => {
 
 test('config is read leniently: bad values fall back to defaults', () => {
   const d = parseConfig({})
-  expect([d.maxCards, d.layout, d.motion, d.moments, d.panels.length]).toEqual([3, 'auto', true, true, 10]) // Flightdeck's 7 + Liveroom's models, codex, skills
+  expect([d.maxCards, d.layout, d.motion, d.moments, d.panels.length]).toEqual([3, 'auto', true, true, 12]) // Flightdeck's 7 + Liveroom's models, codex, skills, team, tasks
   expect(d.architect.test('fable-advisor:fable-advisor')).toBe(true)
   const c = parseConfig({ architectPattern: '([', maxCards: 99, layout: 'diagonal', panels: 'log, gate ,nope,gate', motion: 'off' })
   expect(c.architect.test('advisor')).toBe(true) // invalid regex → default
@@ -413,6 +413,21 @@ test("a background architect's advice is read from its hand-back", async ($, on)
   await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'H1', agentId: 'fab1', reason: 'answer' })
   await $.turn.start({
     text: '<agent-message from="fab1">\n[Subagent hand-back] The report follows:\n  Ship it after one more gate test.\n</agent-message>',
+    turnId: 'H2',
+  })
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /» Ship it after one more gate test\./ })).toBeDefined()
+  await ui.unmount()
+})
+
+test("a background architect's hand-back is read behind the engine's note too", async ($, on) => {
+  engine(on)
+  on('agent.spawn', () => ({ model: 'claude-fable-5-1', agentId: 'fab1' }))
+  await $.turn.start({ text: 'review it', turnId: 'H1' })
+  await $.agent.spawn(spawn('fable-advisor:fable-advisor', 'final review'))
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'H1', agentId: 'fab1', reason: 'answer' })
+  await $.turn.start({
+    text: 'Another Claude session sent a message:\n<agent-message from="fab1">\n[Subagent hand-back] The report follows:\n  Ship it after one more gate test.\n</agent-message>',
     turnId: 'H2',
   })
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
