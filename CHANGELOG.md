@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- README: the video under "What you see" is Liveroom's own, the full-screen recording the opening animation comes from, in place of Flightdeck's.
 - README: the opening animation is Liveroom's own, from a live session: a Codex hand-off, then a team of two teammates at work. A Liveroom social preview image is in `docs/media/social-preview.png`, to upload under Settings → Social preview.
 - Issue forms for bugs and feature requests, a private security link, and a pull request checklist.
 - README: says why a teammate in a pane of its own shows its state and messages but not its steps, tool calls, context or cost. Carrying them over would need a store two processes share, and Liveroom writes none.
