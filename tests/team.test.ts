@@ -263,9 +263,15 @@ test('a task that completes moves after those done before it', () => {
   expect(ts.map(t => t.id)).toEqual(['2', '1'])
   expect(boardRows(ts, 1).map(t => t.id)).toEqual(['1']) // the newest done
   expect(updateTask(ts, { taskId: '2', subject: 'b2' }).map(t => t.id)).toEqual(['2', '1']) // a done task edited stays put
-  // A TaskList answer in creation order keeps the order the pane saw them finish in; a new completion follows.
+  // A TaskList answer in creation order keeps the order the pane saw them finish in; one it doesn't hold goes first, as the oldest.
   const listed = listTasks(ts, [{ id: '1', status: 'completed' }, { id: '2', status: 'completed' }, { id: '3', status: 'completed' }, { id: '4', status: 'pending' }])
-  expect(listed.map(t => t.id)).toEqual(['2', '1', '3', '4'])
+  expect(listed.map(t => t.id)).toEqual(['3', '2', '1', '4'])
+  // Past the bound, a listing of every completion keeps the newest 200: the evicted one doesn't come back as newest.
+  let many: TeamTask[] = []
+  for (let i = 1; i <= 201; i++) many = updateTask(many, { taskId: String(i), status: 'completed' })
+  expect(many[0]?.id).toBe('2')
+  const again = listTasks(many, Array.from({ length: 201 }, (_, i) => ({ id: String(i + 1), status: 'completed' })))
+  expect([again.length, again[0]?.id, again.at(-1)?.id]).toEqual([200, '2', '201'])
 })
 
 test('an assignment notice gives the task its current subject', () => {

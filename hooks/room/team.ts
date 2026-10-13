@@ -320,12 +320,13 @@ export function updateTask(tasks: readonly TeamTask[], input: { taskId?: unknown
 /**
  * A TaskList answer is the whole list: it replaces what the pane pieced together, keeping known
  * subjects. The answer gives no completion order, so the done tasks keep the order the pane saw them
- * finish in, and those it hadn't seen finish follow in the answer's order.
+ * finish in. Those it doesn't hold go first, as the oldest: mostly ones the 200-task bound let go,
+ * which would otherwise come back as the newest and push recent ones out.
  */
 export function listTasks(tasks: readonly TeamTask[], listed: unknown): TeamTask[] {
   const all = tasksOf(listed).map(t => ({ ...t, subject: t.subject || tasks.find(x => x.id === t.id)?.subject || '' }))
   const finished = tasks.filter(t => t.status === 'completed').map(t => t.id)
-  const rank = (t: TeamTask) => (finished.includes(t.id) ? finished.indexOf(t.id) : finished.length)
+  const rank = (t: TeamTask) => finished.indexOf(t.id) // -1, first, for one it doesn't hold
   const done = all.filter(t => t.status === 'completed').map((t, i) => ({ t, i })).sort((a, b) => rank(a.t) - rank(b.t) || a.i - b.i).map(x => x.t)
   let k = 0
   return bound(all.map(t => (t.status === 'completed' ? done[k++]! : t))) // open tasks keep their places
