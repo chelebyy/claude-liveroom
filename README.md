@@ -6,7 +6,7 @@
 
 **A Claude Code mod that puts a live room in your terminal**: context and cost, an advisor timeline, every permission check, and your subagents as cards or swimlanes. Every number comes from a real session event, and nothing leaves your machine.
 
-> Liveroom is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella, used under the MIT License. On top of Flightdeck 0.3.2 it adds the **models**, **codex**, **skills**, **team** and **tasks** panels, a ⚠ for subagents that silently inherit the main model, and a Turkish UI. The animation and the team room screenshots below are Liveroom's, from live sessions; the video and screenshots under "What you see" are Flightdeck's and show the panels Liveroom keeps from it.
+> Liveroom is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella, used under the MIT License. On top of Flightdeck 0.3.2 it adds the **models**, **codex**, **skills**, **team** and **tasks** panels, a ⚠ for subagents that silently inherit the main model, and a Turkish UI. The animation and the team room screenshots below are Liveroom's, from live sessions; so is the video under "What you see". The screenshots below that video are Flightdeck's and show the panels Liveroom keeps from it.
 
 <p align="center">
   <img src="docs/media/demo.gif" alt="Claude Code with the Liveroom pane docked beside the transcript, during a live session: Claude hands a question to Codex (gpt-6-luna, low effort), which the codex panel shows running and then done, then forms a team of two Haiku teammates who work on their tasks and shut down while the task board fills" width="820">
@@ -60,7 +60,7 @@ Mods are an early-access Claude Code feature and their API can change between re
 
 ## What you see
 
-https://github.com/user-attachments/assets/9ad0fcc3-c81c-427a-a743-f7b6c49f5885
+https://github.com/user-attachments/assets/ac14e8f6-9a8d-45c7-88bf-7e5d24bcc7bd
 
 <p align="center">
   <img src="docs/media/docked-session.png" alt="Claude Code in fullscreen with the Flightdeck pane docked beside the transcript" width="820">
