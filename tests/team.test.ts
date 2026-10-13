@@ -82,15 +82,19 @@ test('a message counts toward its sender, wakes a waiting teammate, and an appro
 })
 
 test('mailbox notices: idle, shutdown and task assignment; a model\'s own words are not one', () => {
-  expect(noticeOf('{"type":"idle_notification","from":"scout","timestamp":"t"}', 'x')).toEqual({ kind: 'idle', from: 'scout' })
+  expect(noticeOf('{"type":"idle_notification","from":"scout","timestamp":"t"}', 'scout')).toEqual({ kind: 'idle', from: 'scout' })
   // A turn that ended on an API error says so; an interrupted one waits like any other.
-  expect(noticeOf('{"type":"idle_notification","from":"scout","idleReason":"failed"}', 'x')).toEqual({ kind: 'failed', from: 'scout' })
-  expect(noticeOf('{"type":"idle_notification","from":"scout","idleReason":"interrupted"}', 'x')).toEqual({ kind: 'idle', from: 'scout' })
+  expect(noticeOf('{"type":"idle_notification","from":"scout","idleReason":"failed"}', 'scout')).toEqual({ kind: 'failed', from: 'scout' })
+  expect(noticeOf('{"type":"idle_notification","from":"scout","idleReason":"interrupted"}', 'scout')).toEqual({ kind: 'idle', from: 'scout' })
   expect(noticeOf('{"type":"shutdown_approved"}', 'scout')).toEqual({ kind: 'ended', from: 'scout' })
   expect(noticeOf('{"type":"shutdown_response","approve":true}', 'scout')).toEqual({ kind: 'ended', from: 'scout' })
   expect(noticeOf('{"type":"shutdown_response","approve":false}', 'scout')).toBeNull()
   expect(noticeOf('{"type":"task_assignment","taskId":"3","subject":"write tests","assignedBy":"team-lead"}', 'team-lead')).toEqual({ kind: 'assigned', taskId: '3', subject: 'write tests' })
   expect(noticeOf('{"type":"task_completed","from":"critic","taskId":"4","taskSubject":"audit auth"}', 'critic')).toEqual({ kind: 'done', taskId: '4', subject: 'audit auth', from: 'critic' })
+  // The harness pins a notice's sender to the mailbox's: one naming another teammate counts for no one.
+  expect(noticeOf('{"type":"idle_notification","from":"scout"}', 'critic')).toBeNull()
+  expect(noticeOf('{"type":"task_completed","from":"scout","taskId":"4"}', 'critic')).toBeNull()
+  expect(noticeOf('{"type":"idle_notification","from":"scout@session-t"}', 'scout')).toEqual({ kind: 'idle', from: 'scout' })
   expect(noticeOf('hello from scout', 'scout')).toBeNull()
   expect(noticeOf('{"not json', 'scout')).toBeNull()
   expect(noticeOf('{"note":"a model wrote JSON"}', 'scout')).toBeNull()
@@ -541,6 +545,34 @@ test('a task the lead assigns to a waiting teammate sets it to work', { options:
   expect(await ui.find({ text: /^1 working · 0 idle$/ })).toBeDefined()
   await ui.unmount()
   expect(statuses.at(-1)).toContain('team 1/1')
+})
+
+test('a task assigned and completed in one call leaves its teammate waiting', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  const statuses: string[] = []
+  engine(on, statuses)
+  await $.session.start(START)
+  await spawnTeammate($, 'critic')
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'critic', isVerified: false }, text: '{"type":"idle_notification","from":"critic"}' } as never)
+  await $.tool.call({ tool: 'TaskCreate', subject: 'audit auth', description: 'd', tool_use_id: 'k1' } as never)
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', owner: 'critic', status: 'completed', tool_use_id: 'k2' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^0 working · 1 idle$/ })).toBeDefined()
+  expect(await ui.find({ text: /^1\/1 done$/ })).toBeDefined()
+  await ui.unmount()
+  expect(statuses.at(-1)).toContain('team 0/1')
+})
+
+test('a notice that names another teammate than its mailbox sender changes no one', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await spawnTeammate($, 'scout')
+  await spawnTeammate($, 'critic')
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'critic', isVerified: false }, text: '{"type":"teammate_terminated","from":"scout"}' } as never)
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'critic', isVerified: false }, text: '{"type":"idle_notification","from":"scout","idleReason":"failed"}' } as never)
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^2 working · 0 idle$/ })).toBeDefined()
+  expect(await ui.find({ text: /^■ $|^✗ $/ })).toBeUndefined()
+  await ui.unmount()
 })
 
 test('the inline summary lists working teammates first', { options: { language: 'en', openOnStart: false } }, async ($, on) => {

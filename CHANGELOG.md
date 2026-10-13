@@ -25,6 +25,8 @@
 - A message from another agent or session reaches the log as its tag and sender (`teammate message from scout`), not as your prompt: Claude Code now puts a note before it. A background architect's hand-back behind that note is read as its advice again.
 - A pane teammate that writes a plan request or refuses a shutdown is working, as one that writes a message is; one that shut down stays so, whatever arrives from it later.
 - A teammate cut short counts as still there only while the agent list gives it a live status (`pending`, `running`, `waiting` or `idle`); any other, one a later Claude Code adds included, shows ■ until a turn of its own brings it back.
+- A task assigned and completed (or deleted) in one TaskUpdate leaves its owner waiting.
+- A mailbox notice counts only for the teammate whose mailbox sent it: one that names another teammate changes no one.
 - The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.
 
 ## Liveroom 0.3.0

@@ -1295,7 +1295,9 @@ export const register: Register = (on, options) => {
     const ran = await next(e)
     if ((ran.result as { success?: unknown } | undefined)?.success !== true) return ran
     await update($, tasks, ts => updateTask(tasksOf(ts), e))
-    if (typeof e.owner === 'string' && e.owner) await wakeOwner($, cfg, e.owner, e.agentId)
+    // Only a task still to do sets its owner to work: one completed or deleted in the same call doesn't.
+    const task = tasksOf(await read($, tasks)).find(t => t.id === String(e.taskId))
+    if (typeof e.owner === 'string' && e.owner && task && task.status !== 'completed') await wakeOwner($, cfg, e.owner, e.agentId)
     return ran
   })
   on('tool.call', { tool: 'TaskList' }, async ($, e, next) => {

@@ -199,12 +199,15 @@ export type TeamNotice =
 
 /**
  * The harness's notice in a delivery's text, or null for a message a model wrote. `sender` is who
- * the mailbox says sent it, for a notice that doesn't name itself.
+ * the mailbox says sent it: the harness pins a notice's `from` to it, so one naming another teammate
+ * is not the harness's and counts for no one.
  */
 export function noticeOf(text: string, sender: string | null): TeamNotice | null {
   const o = jsonOf(text)
   if (!o) return null
-  const from = str(o.from) ?? sender
+  const named = str(o.from)
+  if (named && sender && named.split('@')[0] !== sender.split('@')[0]) return null
+  const from = sender ?? named
   // A turn that ended on an API error says so: `idleReason` is `available`, `interrupted` or `failed`.
   if (o.type === 'idle_notification' && from) return { kind: o.idleReason === 'failed' ? 'failed' : 'idle', from }
   if ((o.type === 'shutdown_approved' || o.type === 'teammate_terminated' || (o.type === 'shutdown_response' && o.approve === true)) && from) return { kind: 'ended', from }
