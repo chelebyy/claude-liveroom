@@ -6,10 +6,10 @@
 
 **A Claude Code mod that puts a live room in your terminal**: context and cost, an advisor timeline, every permission check, and your subagents as cards or swimlanes. Every number comes from a real session event, and nothing leaves your machine.
 
-> Liveroom is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella, used under the MIT License. On top of Flightdeck 0.3.2 it adds the **models**, **codex**, **skills**, **team** and **tasks** panels, a ⚠ for subagents that silently inherit the main model, and a Turkish UI. The team room screenshots below are Liveroom's, taken from live sessions; the animation and the screenshots further down are Flightdeck's.
+> Liveroom is a fork of [Flightdeck](https://github.com/scasella/claude-flightdeck) by Stephen Casella, used under the MIT License. On top of Flightdeck 0.3.2 it adds the **models**, **codex**, **skills**, **team** and **tasks** panels, a ⚠ for subagents that silently inherit the main model, and a Turkish UI. The animation and the team room screenshots below are Liveroom's, from live sessions; the video and screenshots under "What you see" are Flightdeck's and show the panels Liveroom keeps from it.
 
 <p align="center">
-  <img src="docs/media/demo.gif" alt="Flightdeck during a live session: five audit subagents fan out as cards, switch to swimlanes and finish, while the permission gate fills with checks" width="520">
+  <img src="docs/media/demo.gif" alt="Claude Code with the Liveroom pane docked beside the transcript, during a live session: Claude hands a question to Codex (gpt-6-luna, low effort), which the codex panel shows running and then done, then forms a team of two Haiku teammates who work on their tasks and shut down while the task board fills" width="820">
 </p>
 
 <table>
