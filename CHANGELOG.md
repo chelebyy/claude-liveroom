@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Internal: every change to the team and the task list goes through one reducer each (`reduceTeam`, `reduceTasks` in hooks/room/team.ts), and a teammate's state moves only as one table says, by cause and by the state it was in. The hooks hand over events and log a teammate's shutdown from the change it made. Behaviour is unchanged, but a teammate already shut down no longer gets a second "shut down" log line.
+
 ## Liveroom 0.4.0
 
 - **team** panel: an agent team's teammates, those at work first, ● working, ○ idle with how long it has waited, ■ shut down, ✗ failed, with the task each works on; ▣ marks one in a terminal pane of its own. Below them, the last three messages between the lead and its teammates, shutdown and plan answers included, each a summary or first line with credentials masked.

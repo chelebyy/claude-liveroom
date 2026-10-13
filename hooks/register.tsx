@@ -63,7 +63,8 @@ import type { LanguageOption, T } from './room/i18n'
 import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
-import { LEAD, addTask, applyMessage, assignTask, completeTask, isLead, isLive, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
+import type { Change, Delivery, TeamEvent } from './room/team'
+import { isLive, memberOf, reduceTasks, reduceTeam, tasksOf, teamOf } from './room/team'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -335,7 +336,10 @@ export const register: Register = (on, options) => {
       return yield* next(e)
     }
     // A teammate's first step starts its turn: it works until the turn ends.
-    if (await teamStep($, cfg, e.agentId, e.index)) return yield* next(e)
+    if (memberOf(teamOf(await read($, team)), e.agentId)) {
+      await teamEvent($, cfg, { type: 'step', id: e.agentId, index: e.index, at: await $.clock.now() })
+      return yield* next(e)
+    }
     const result = yield* next(e)
     const id = e.agentId
     const [cards, a, crew] = await Promise.all([getCards($), getArchitect($), read($, team)])
@@ -484,8 +488,9 @@ export const register: Register = (on, options) => {
     if (e.isTeammate && started.teammateId) {
       // Its first steps, even its whole first turn, can come before the spawn's answer: they ran as another loop.
       const early = listOf<Loop>(await read($, loops)).find(x => x.id === id)
-      await joinTeammate($, id, started.teammateId, started.model ?? '')
-      if (early?.isDone) await update($, team, t => setState(teamOf(t), id, 'idle', early.lastAt)) // that turn ended: it waits
+      const at = await $.clock.now()
+      await dispatchTeam($, { type: 'join', id, teammateId: started.teammateId, model: started.model ?? '', at, endedAt: early?.isDone ? early.lastAt : undefined })
+      await say($, await whoIs($, id), tx('joined the team'), 'info', id)
       await update($, loops, l => listOf<Loop>(l).filter(x => x.id !== id))
       await refreshStatus($, cfg)
       return started
@@ -534,7 +539,10 @@ export const register: Register = (on, options) => {
       await refreshStatus($, cfg)
       return done
     }
-    if (await endTeamTurn($, id, e.reason)) {
+    // A teammate's turn ends in waiting for a message, or failed on an error.
+    if (memberOf(teamOf(await read($, team)), id)) {
+      const isGone = e.reason === 'aborted' && !(await isListed($, id))
+      await dispatchTeam($, { type: 'turnEnd', id, reason: e.reason, isListed: !isGone, at: now })
       await refreshStatus($, cfg)
       return done
     }
@@ -1286,7 +1294,9 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'SendMessage' }, async ($, e, next) => {
     const ran = await next(e)
     const result = ran.result as { success?: unknown } | null | undefined
-    if (ran.deny === undefined && ran.isError !== true && result?.success !== false) await noteMessage($, cfg, e)
+    if (ran.deny === undefined && ran.isError !== true && result?.success !== false) {
+      await teamEvent($, cfg, { type: 'send', fromId: e.agentId, to: e.to, message: e.message, summary: e.summary, at: await $.clock.now() })
+    }
     return ran
   })
 
@@ -1294,22 +1304,24 @@ export const register: Register = (on, options) => {
   on('tool.call', { tool: 'TaskCreate' }, async ($, e, next) => {
     const ran = await next(e)
     const task = (ran.result as { task?: { id?: unknown; subject?: unknown } } | undefined)?.task
-    if (task) await update($, tasks, ts => addTask(tasksOf(ts), task))
+    if (task) await update($, tasks, ts => reduceTasks(tasksOf(ts), { type: 'create', task }))
     return ran
   })
   on('tool.call', { tool: 'TaskUpdate' }, async ($, e, next) => {
     const ran = await next(e)
     if ((ran.result as { success?: unknown } | undefined)?.success !== true) return ran
-    await update($, tasks, ts => updateTask(tasksOf(ts), e))
+    await update($, tasks, ts => reduceTasks(tasksOf(ts), { type: 'update', input: e }))
     // Only a task still to do sets its owner to work: one completed or deleted in the same call doesn't.
     const task = tasksOf(await read($, tasks)).find(t => t.id === String(e.taskId))
-    if (typeof e.owner === 'string' && e.owner && task && task.status !== 'completed') await wakeOwner($, cfg, e.owner, e.agentId)
+    if (typeof e.owner === 'string' && e.owner && task && task.status !== 'completed') {
+      await teamEvent($, cfg, { type: 'assign', owner: e.owner, byId: e.agentId, at: await $.clock.now() })
+    }
     return ran
   })
   on('tool.call', { tool: 'TaskList' }, async ($, e, next) => {
     const ran = await next(e)
     const listed = (ran.result as { tasks?: unknown } | undefined)?.tasks
-    if (Array.isArray(listed)) await update($, tasks, ts => listTasks(tasksOf(ts), listed))
+    if (Array.isArray(listed)) await update($, tasks, ts => reduceTasks(tasksOf(ts), { type: 'list', listed }))
     return ran
   })
 
@@ -1319,7 +1331,10 @@ export const register: Register = (on, options) => {
   on('session.receive', async ($, e, next) => {
     const got = await next(e)
     if (!('teammate' in e.origin) || got.consumed !== undefined) return got
-    if (await noteDelivery($, e.origin.teammate, e.origin.isVerified, got.text, e.agentId)) await refreshStatus($, cfg)
+    const ev: Delivery = { type: 'deliver', sender: e.origin.teammate, isVerified: e.origin.isVerified, text: got.text, toId: e.agentId, at: await $.clock.now() }
+    const was = teamOf(await read($, team))
+    await update($, tasks, ts => reduceTasks(tasksOf(ts), ev, was))
+    await teamEvent($, cfg, ev)
     return got
   })
 }
@@ -1393,76 +1408,47 @@ async function resetRoom($: EngineInterface) {
   await update($, steps, () => ({}))
   await update($, skills, () => ({}))
   await update($, plugins, () => ({}))
-  // `/clear` clears the lead's conversation, not its teammates: they stay, with their delegation
-  // notes and the task list. Only a pane teammate that shut down goes; an in-process one can be
-  // brought back by a message.
-  const kept = teamOf(await read($, team)).members.filter(m => !(m.state === 'ended' && m.isPane))
-  const ids = new Set(kept.map(m => m.id))
+  // The teammates that stay keep their delegation notes, and the task list stays.
+  await dispatchTeam($, { type: 'clear' })
+  const ids = new Set(teamOf(await read($, team)).members.map(m => m.id))
   await update($, rules, r => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([id]) => ids.has(id))))
-  await update($, team, () => ({ members: kept, messages: [] }))
 }
 
 /**
  * A session that ends other than by `/clear` (a resume, a branch, an exit) takes its teammates with
- * it: Claude Code brings none back, so none of them stays to be counted, or revived by a message to
- * its name. The task list stays, as resumed sessions keep their tasks.
+ * it, and their delegation notes. The task list stays, as resumed sessions keep their tasks.
  */
 async function endTeammates($: EngineInterface) {
-  const ids = new Set(teamOf(await read($, team)).members.map(m => m.id))
+  const ids = new Set((await dispatchTeam($, { type: 'end' })).map(c => c.id))
   await update($, rules, r => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([id]) => !ids.has(id))))
-  await update($, team, () => ({ members: [], messages: [] }))
 }
 
 /**
- * A task assigned to a waiting teammate sets it to work, which a pane teammate's turns can't say
- * here. One that claims a task itself is already at work.
+ * One of the team's events applied as `reduceTeam` says, returning the members it changed, joined or
+ * dropped. A teammate that shuts down by its own answer or a notice gets a log line; one whose turn
+ * was cut short is read from the agent list, quietly, as before.
  */
-async function wakeOwner($: EngineInterface, cfg: Config, owner: string, by: string | undefined) {
-  const member = memberNamed(teamOf(await read($, team)), owner)
-  if (!member || member.id === by || (member.state !== 'idle' && member.state !== 'failed')) return
-  const at = await $.clock.now()
-  await update($, team, t => reopen(teamOf(t), member.id, at))
-  await refreshStatus($, cfg)
+async function dispatchTeam($: EngineInterface, ev: TeamEvent): Promise<Change[]> {
+  let changes: Change[] = []
+  await update($, team, t => {
+    const r = reduceTeam(teamOf(t), ev)
+    changes = r.changes
+    return r.team
+  })
+  if (ev.type === 'send' || ev.type === 'deliver') {
+    for (const c of changes) if (c.to === 'ended') await say($, shorten(c.name, 14), tx('shut down'), 'info', c.id)
+  }
+  return changes
+}
+
+/** One of the team's events applied, and the status line refreshed when it changed a teammate's state. */
+async function teamEvent($: EngineInterface, cfg: Config, ev: TeamEvent) {
+  if ((await dispatchTeam($, ev)).length > 0) await refreshStatus($, cfg)
 }
 
 /** Forgets an agent's delegation note. */
 async function dropRule($: EngineInterface, id: string) {
   await update($, rules, r => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([k]) => k !== id)))
-}
-
-/** A teammate joins the team panel, working on the prompt it was spawned with. */
-async function joinTeammate($: EngineInterface, id: string, teammateId: string, model: string) {
-  const at = await $.clock.now()
-  await update($, team, t => joinTeam(teamOf(t), { id, teammateId, model }, at))
-  await say($, await whoIs($, id), tx('joined the team'), 'info', id)
-}
-
-/**
- * A teammate's step: its first starts a turn, so it works, even after it stopped, as a message
- * brings an in-process teammate back. False for any other loop.
- */
-async function teamStep($: EngineInterface, cfg: Config, id: string, index: number): Promise<boolean> {
-  const member = memberOf(teamOf(await read($, team)), id)
-  if (!member) return false
-  if (index === 0 && member.state !== 'working') {
-    const at = await $.clock.now()
-    await update($, team, t => reopen(teamOf(t), id, at))
-    await refreshStatus($, cfg)
-  }
-  return true
-}
-
-/**
- * A teammate's turn ends in waiting for a message, or failed on an error. One stopped without the
- * shutdown handshake (TaskStop, the lead ending) ends its turn cut short and leaves the agent list,
- * where it no longer waits. False for any other loop.
- */
-async function endTeamTurn($: EngineInterface, id: string, reason: string): Promise<boolean> {
-  if (!memberOf(teamOf(await read($, team)), id)) return false
-  const isGone = reason === 'aborted' && !(await isListed($, id))
-  const at = await $.clock.now()
-  await update($, team, t => setState(teamOf(t), id, isGone ? 'ended' : turnEndState(reason), at))
-  return true
 }
 
 /** Whether an agent is still there on the session's list, by a status known to be live; true when the list can't be read. */
@@ -1472,60 +1458,6 @@ async function isListed($: EngineInterface, id: string): Promise<boolean> {
   } catch {
     return true
   }
-}
-
-/** A SendMessage that went out: from the lead, a teammate, or another agent of the session. */
-async function noteMessage($: EngineInterface, cfg: Config, e: { agentId?: string; to?: unknown; message?: unknown; summary?: unknown }) {
-  const was = teamOf(await read($, team))
-  // Another agent of the session (a subagent) is not the team's, whatever a teammate is named.
-  const author = e.agentId ? memberOf(was, e.agentId) : undefined
-  if (e.agentId && !author) return
-  const from = author?.name ?? LEAD
-  // A teammate addressed by its id reads as its name, as the roster keeps it.
-  const to = typeof e.to === 'string' ? (memberNamed(was, e.to)?.name ?? e.to) : e.to
-  const msg = messageOf({ ...e, to }, from, await $.clock.now())
-  if (!msg || !isTeamMessage(was, msg)) return // another session's traffic
-  await update($, team, t => applyMessage(teamOf(t), msg, author?.id))
-  if (msg.kind === 'shutdown-response' && msg.approve === true && author) await say($, shorten(author.name, 14), tx('shut down'), 'info', author.id)
-  await refreshStatus($, cfg) // a message may wake a teammate or end one
-}
-
-/**
- * A delivery from a teammate's mailbox: a harness notice sets a teammate's state or a task's owner;
- * a message the harness here didn't write is a pane teammate's, which no tool call showed. True when
- * a teammate's state changed.
- */
-async function noteDelivery($: EngineInterface, sender: string, isVerified: boolean, text: string, to: string | undefined): Promise<boolean> {
-  const at = await $.clock.now()
-  const was = teamOf(await read($, team))
-  const notice = noticeOf(text, sender)
-  const member = memberNamed(was, notice && notice.kind !== 'assigned' && notice.kind !== 'done' ? notice.from : sender)
-  // A message the harness here didn't write is a pane teammate's, which no tool call showed: its
-  // words (JSON included), or a protocol request or answer. The mailbox's own notices are not one.
-  // One delivered to another agent of the session (a subagent) is not the team's.
-  const recipient = to ? memberOf(was, to) : undefined
-  if (!isVerified && !isNotice(text) && (!to || recipient)) {
-    const msg = messageOf({ to: recipient?.name ?? LEAD, message: protocolOf(text) ?? text }, sender, at)
-    // A pane teammate that writes is in a turn, a plan request or a shutdown refusal included, unless
-    // it agrees to shut down. One that shut down stays so: its process is gone.
-    if (msg && isTeamMessage(was, msg)) {
-      const isShutdown = msg.kind === 'shutdown-response' && msg.approve === true
-      const writer = member && member.state !== 'ended' && !isShutdown ? member : null
-      await update($, team, t => (writer ? reopen(applyMessage(teamOf(t), msg), writer.id, at) : applyMessage(teamOf(t), msg)))
-    }
-  }
-  if (notice?.kind === 'assigned') {
-    // Only from this team: its lead or a current teammate, not a departed one's late notice.
-    const owner = member || isLead(sender) ? (to ? memberOf(was, to)?.name : LEAD) : undefined
-    if (owner) await update($, tasks, ts => assignTask(tasksOf(ts), notice.taskId, notice.subject, owner))
-  } else if (notice?.kind === 'done') {
-    // Only a current teammate's: a departed one's late notice (after a resume, which keeps the tasks) is not this team's.
-    if (member) await update($, tasks, ts => completeTask(tasksOf(ts), notice.taskId, notice.subject, notice.from))
-  } else if (notice && member) {
-    await update($, team, t => setState(teamOf(t), member.id, notice.kind, at))
-    if (notice.kind === 'ended' && member.state !== 'ended') await say($, shorten(member.name, 14), tx('shut down'), 'info', member.id)
-  }
-  return Boolean(member) && ((notice !== null && notice.kind !== 'assigned' && notice.kind !== 'done') || !isVerified)
 }
 
 /** A Codex run ends with its call: failed when refused, errored or thrown (`ran` null). */
