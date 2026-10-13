@@ -338,12 +338,13 @@ export const register: Register = (on, options) => {
     if (await teamStep($, cfg, e.agentId, e.index)) return yield* next(e)
     const result = yield* next(e)
     const id = e.agentId
-    const [cards, a] = await Promise.all([getCards($), getArchitect($)])
+    const [cards, a, crew] = await Promise.all([getCards($), getArchitect($), read($, team)])
     if (cards.some(c => c.id === id)) {
       const step = { model: e.model, usage: result.usage, stopReason: result.stopReason }
       await update($, agents, list => listOf<unknown>(list).map(normalizeCard).map(c => (c.id === id ? applyStep(c, step) : c)))
       if (result.stopReason === 'max_tokens') await say($, await whoIs($, id), tx('hit max_tokens'), 'error', id)
-    } else if (!a.ids.includes(id)) {
+    } else if (!a.ids.includes(id) && !memberOf(teamOf(crew), id)) {
+      // A teammate whose spawn answered while this step ran is the team's now, not another loop.
       const now = await $.clock.now()
       await update($, loops, l => stepLoop(listOf<Loop>(l), id, now))
     }
