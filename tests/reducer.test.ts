@@ -133,3 +133,21 @@ test('only an assignment or a completion notice touches the task list', () => {
   expect(isTaskNotice({ ...at, text: '{"type":"idle_notification","from":"scout"}' })).toBe(false)
   expect(isTaskNotice({ ...at, text: 'words' })).toBe(false)
 })
+
+test('the agent list ends a teammate it shows ended or no longer lists, and reads nothing from running or idle', () => {
+  const bg = one('working', true) // a background or pane teammate: its id is its address
+  const listed = (status: string | null) =>
+    reduceTeam(bg, { type: 'listed', agents: status ? [{ id: 'scout@x', teammateId: 'scout@x', status }] : [], at: 8 })
+  expect([listed('running'), listed('idle'), listed('waiting')].map(r => r.changes)).toEqual([[], [], []])
+  const done = listed('completed')
+  expect(done.changes).toEqual([{ id: 'scout@x', name: 'scout', from: 'working', to: 'ended' }])
+  expect(shutdownsOf({ type: 'listed', agents: [], at: 8 }, done.changes).map(c => c.id)).toEqual(['scout@x'])
+  expect(listed(null).changes[0]?.to).toBe('ended') // no longer listed
+  // A list that keys it by another id still finds it by its address.
+  expect(reduceTeam(bg, { type: 'listed', agents: [{ id: 'a9', teammateId: 'scout@x', status: 'killed' }], at: 8 }).changes[0]?.to).toBe('ended')
+  expect(reduceTeam(bg, { type: 'listed', agents: [{ id: 'a9', teammateId: 'scout@x', status: 'running' }], at: 8 }).changes).toEqual([])
+  // An in-process teammate is listed under its agent id, `running` between turns: it stays as it was.
+  const inProcess = one('idle')
+  expect(reduceTeam(inProcess, { type: 'listed', agents: [{ id: 'a1', teammateId: 'scout@x', status: 'running' }], at: 8 }).changes).toEqual([])
+  expect(reduceTeam(one('ended'), { type: 'listed', agents: [], at: 8 }).changes).toEqual([])
+})

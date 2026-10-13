@@ -536,6 +536,7 @@ export const register: Register = (on, options) => {
       })
       await update($, receipt, () => r)
       await update($, main, m => ({ ...normalize(DEFAULT_MAIN, m), isRunning: false }))
+      await readAgentList($, cfg)
       await refreshStatus($, cfg)
       return done
     }
@@ -1335,6 +1336,7 @@ export const register: Register = (on, options) => {
     const was = teamOf(await read($, team))
     if (isTaskNotice(ev)) await update($, tasks, ts => reduceTasks(tasksOf(ts), ev, was))
     await teamEvent($, cfg, ev)
+    await readAgentList($, cfg)
     return got
   })
 }
@@ -1429,6 +1431,9 @@ async function endTeammates($: EngineInterface) {
  * was cut short is read from the agent list, quietly, as before.
  */
 async function dispatchTeam($: EngineInterface, ev: TeamEvent): Promise<Change[]> {
+  // An event that changes nothing, as most agent-list reads, leaves the state and its readers alone.
+  const was = teamOf(await read($, team))
+  if (JSON.stringify(reduceTeam(was, ev).team) === JSON.stringify(was)) return []
   let changes: Change[] = []
   await update($, team, t => {
     const r = reduceTeam(teamOf(t), ev)
@@ -1447,6 +1452,21 @@ async function teamEvent($: EngineInterface, cfg: Config, ev: TeamEvent) {
 /** Forgets an agent's delegation note. */
 async function dropRule($: EngineInterface, id: string) {
   await update($, rules, r => Object.fromEntries(Object.entries(r && typeof r === 'object' ? r : {}).filter(([k]) => k !== id)))
+}
+
+/**
+ * The session's agent list read into the team, while a teammate is still up: one it lists as ended, or
+ * no more, has shut down. Nothing when the list can't be read.
+ */
+async function readAgentList($: EngineInterface, cfg: Config) {
+  if (teamOf(await read($, team)).members.every(m => m.state === 'ended')) return
+  let agents: { id: string; teammateId?: string; status: string }[]
+  try {
+    agents = (await $.agent.list()).map(a => ({ id: a.id, teammateId: a.teammateId, status: a.status }))
+  } catch {
+    return
+  }
+  await teamEvent($, cfg, { type: 'listed', agents, at: await $.clock.now() })
 }
 
 /** Whether an agent is still there on the session's list, by a status known to be live; true when the list can't be read. */
