@@ -1,5 +1,6 @@
 # Liveroom
 
+[![CI](https://github.com/chelebyy/claude-liveroom/actions/workflows/ci.yml/badge.svg)](https://github.com/chelebyy/claude-liveroom/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code 2.1.289+](https://img.shields.io/badge/Claude%20Code-2.1.289%2B%20mod-d97757.svg)](https://claude.com/blog/claude-code-mods)
 

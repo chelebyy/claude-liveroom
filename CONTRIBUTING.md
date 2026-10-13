@@ -15,12 +15,14 @@ Edits to `hooks/` hot-reload in that session when Claude's turn ends.
 ## Before a pull request
 
 ```sh
-claude plugin validate .
+claude plugin validate --strict .
 claude plugin test .
 npx -p typescript tsc -p .
 ```
 
 All three must pass. The type check needs `.claude-plugin/types/`, which Claude Code writes the first time it loads the mod.
+
+CI (`.github/workflows/ci.yml`) runs the first two on every pull request and push to `main`, with Claude Code pinned to the version in the workflow; it needs no login. The type check stays local: its types are written only when a Claude Code session loads the mod, which a CI runner can't do without signing in.
 
 ## Ground rules
 

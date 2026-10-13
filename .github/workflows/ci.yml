@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plugin:
+    name: Validate and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # The CLI only validates and runs the mod's tests here: no login, no model calls.
+      DISABLE_AUTOUPDATER: "1"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install Claude Code
+        # Pinned: the mod API changes between versions. Bump it with the version the README requires or tests against.
+        run: npm install --global @anthropic-ai/claude-code@2.1.296
+      - run: claude --version
+      - name: Validate the plugin and marketplace
+        run: claude plugin validate --strict .
+      - name: Run the mod's tests
+        run: claude plugin test .
