@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Cause, MemberState, Team, TeamTask } from '../hooks/room/team'
-import { LEAD, TRANSITIONS, joinTeam, move, reduceTasks, reduceTeam, setState } from '../hooks/room/team'
+import { LEAD, TRANSITIONS, isTaskNotice, joinTeam, move, reduceTasks, reduceTeam, setState, shutdownsOf } from '../hooks/room/team'
 
 const EMPTY: Team = { members: [], messages: [] }
 
@@ -110,4 +110,26 @@ test('the task list: its tools, and a notice only from the team', () => {
   const assigned = { type: 'deliver' as const, isVerified: false, text: '{"type":"task_assignment","taskId":"2","subject":"next","assignedBy":"x"}', at: 6 }
   expect(reduceTasks(ts, { ...assigned, sender: LEAD }, team).map(t => [t.id, t.owner])).toEqual([['1', 'scout'], ['2', LEAD]])
   expect(reduceTasks(ts, { ...assigned, sender: 'gone' }, team)).toEqual(ts)
+})
+
+test('a shutdown is logged once, also when the roster bound lets the teammate go at once; a cut-short turn is not', () => {
+  let t = EMPTY
+  for (let i = 0; i < 25; i++) t = joinTeam(t, { id: `a${i}`, teammateId: `t${i}@x`, model: '' }, i)
+  const bye = { type: 'send' as const, fromId: 'a3', to: LEAD, message: { type: 'shutdown_response', request_id: 'r', approve: true }, at: 30 }
+  const past = reduceTeam(t, bye)
+  expect(past.team.members.some(m => m.id === 'a3')).toBe(false) // 25 running: the one that ended goes at once
+  expect(shutdownsOf(bye, past.changes).map(c => c.id)).toEqual(['a3'])
+  const again = reduceTeam(one('ended'), { ...bye, fromId: 'a1' })
+  expect(shutdownsOf(bye, again.changes)).toEqual([]) // already down: no second line
+  const cut = { type: 'turnEnd' as const, id: 'a1', reason: 'aborted', isListed: false, at: 5 }
+  expect(shutdownsOf(cut, reduceTeam(one('working'), cut).changes)).toEqual([])
+  expect(shutdownsOf({ type: 'end' }, reduceTeam(one('working'), { type: 'end' }).changes)).toEqual([])
+})
+
+test('only an assignment or a completion notice touches the task list', () => {
+  const at = { type: 'deliver' as const, sender: 'scout', isVerified: false, at: 1 }
+  expect(isTaskNotice({ ...at, text: '{"type":"task_assignment","taskId":"1","subject":"s"}' })).toBe(true)
+  expect(isTaskNotice({ ...at, text: '{"type":"task_completed","from":"scout","taskId":"1"}' })).toBe(true)
+  expect(isTaskNotice({ ...at, text: '{"type":"idle_notification","from":"scout"}' })).toBe(false)
+  expect(isTaskNotice({ ...at, text: 'words' })).toBe(false)
 })

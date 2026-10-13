@@ -336,6 +336,22 @@ function changesOf(before: Team, after: Team): Change[] {
   })
 }
 
+/**
+ * The teammates an event shut down by their own answer or a notice: those it moved to ended, and those
+ * it ended and the roster bound then let go at once. A turn cut short is read from the agent list
+ * instead, and a clear or an end only lets teammates go.
+ */
+export function shutdownsOf(ev: TeamEvent, changes: readonly Change[]): Change[] {
+  if (ev.type !== 'send' && ev.type !== 'deliver') return []
+  return changes.filter(c => c.to === 'ended' || (c.to === null && c.from !== null && c.from !== 'ended'))
+}
+
+/** Whether a delivery assigns or completes a task: the only ones that change the task list. */
+export function isTaskNotice(ev: Delivery): boolean {
+  const kind = noticeOf(ev.text, ev.sender)?.kind
+  return kind === 'assigned' || kind === 'done'
+}
+
 /** The team after one of its events, with the members it changed. */
 export function reduceTeam(team: Team, ev: TeamEvent): { team: Team; changes: Change[] } {
   const after = teamAfter(team, ev)

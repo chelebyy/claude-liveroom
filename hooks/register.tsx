@@ -64,7 +64,7 @@ import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
 import type { Change, Delivery, TeamEvent } from './room/team'
-import { isLive, memberOf, reduceTasks, reduceTeam, tasksOf, teamOf } from './room/team'
+import { isLive, isTaskNotice, memberOf, reduceTasks, reduceTeam, shutdownsOf, tasksOf, teamOf } from './room/team'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -337,7 +337,7 @@ export const register: Register = (on, options) => {
     }
     // A teammate's first step starts its turn: it works until the turn ends.
     if (memberOf(teamOf(await read($, team)), e.agentId)) {
-      await teamEvent($, cfg, { type: 'step', id: e.agentId, index: e.index, at: await $.clock.now() })
+      if (e.index === 0) await teamEvent($, cfg, { type: 'step', id: e.agentId, index: e.index, at: await $.clock.now() })
       return yield* next(e)
     }
     const result = yield* next(e)
@@ -1333,7 +1333,7 @@ export const register: Register = (on, options) => {
     if (!('teammate' in e.origin) || got.consumed !== undefined) return got
     const ev: Delivery = { type: 'deliver', sender: e.origin.teammate, isVerified: e.origin.isVerified, text: got.text, toId: e.agentId, at: await $.clock.now() }
     const was = teamOf(await read($, team))
-    await update($, tasks, ts => reduceTasks(tasksOf(ts), ev, was))
+    if (isTaskNotice(ev)) await update($, tasks, ts => reduceTasks(tasksOf(ts), ev, was))
     await teamEvent($, cfg, ev)
     return got
   })
@@ -1435,9 +1435,7 @@ async function dispatchTeam($: EngineInterface, ev: TeamEvent): Promise<Change[]
     changes = r.changes
     return r.team
   })
-  if (ev.type === 'send' || ev.type === 'deliver') {
-    for (const c of changes) if (c.to === 'ended') await say($, shorten(c.name, 14), tx('shut down'), 'info', c.id)
-  }
+  for (const c of shutdownsOf(ev, changes)) await say($, shorten(c.name, 14), tx('shut down'), 'info', c.id)
   return changes
 }
 

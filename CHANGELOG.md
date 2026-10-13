@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Internal: every change to the team and the task list goes through one reducer each (`reduceTeam`, `reduceTasks` in hooks/room/team.ts), and a teammate's state moves only as one table says, by cause and by the state it was in. The hooks hand over events and log a teammate's shutdown from the change it made. Behaviour is unchanged, but a teammate already shut down no longer gets a second "shut down" log line.
+- Internal: every change to the team and the task list goes through one reducer each (`reduceTeam`, `reduceTasks` in hooks/room/team.ts), and a teammate's state moves only as one table says, by cause and by the state it was in. The hooks hand over events and log a teammate's shutdown from the change it made. Behaviour is unchanged, but the log's "shut down" line now follows the change itself: once per teammate that shuts down by its answer or a notice, none for one already down.
 
 ## Liveroom 0.4.0
 
