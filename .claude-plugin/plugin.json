@@ -1,6 +1,6 @@
 {
   "name": "liveroom",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Liveroom: a live room for your Claude Code session. Main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log, all from real session events. Based on Flightdeck by Stephen Casella.",
   "author": {
     "name": "chelebyy",
