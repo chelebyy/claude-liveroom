@@ -49,7 +49,7 @@ const MESSAGE_KINDS: readonly unknown[] = ['text', 'shutdown-request', 'shutdown
 /** A stored member, or none for an entry without an id, a name or a known state. */
 function memberIn(x: Partial<TeamMember> | null): TeamMember[] {
   if (!x || typeof x.id !== 'string' || typeof x.name !== 'string' || !MEMBER_STATES.includes(x.state)) return []
-  return [{ id: x.id, name: x.name, model: str(x.model) ?? '', state: x.state!, since: num(x.since), isPane: x.isPane === true, sent: num(x.sent) }]
+  return [{ id: x.id, name: x.name, model: str(x.model) ?? '', state: x.state!, since: num(x.since), joinedAt: num(x.joinedAt), isPane: x.isPane === true, sent: num(x.sent) }]
 }
 
 /** A stored message, or none for an entry without its ends, a known kind or its text. */
@@ -71,7 +71,7 @@ export function teamOf(x: unknown): Team {
  */
 export function joinTeam(team: Team, m: { id: string; teammateId: string; model: string }, at: number): Team {
   const name = nameOf(m.teammateId.split('@')[0] || m.id)
-  const member: TeamMember = { id: m.id, name, model: m.model, state: 'working', since: at, isPane: m.id.includes('@'), sent: 0 }
+  const member: TeamMember = { id: m.id, name, model: m.model, state: 'working', since: at, joinedAt: at, isPane: m.id.includes('@'), sent: 0 }
   return { ...team, members: boundMembers([...team.members.filter(x => x.id !== m.id), member]) }
 }
 
@@ -281,9 +281,14 @@ function bound(tasks: readonly TeamTask[]): TeamTask[] {
   return tasks.filter(t => !(t.status === 'completed' && extra-- > 0))
 }
 
+/**
+ * A task added or changed in place; one that just completed moves to the end, as the list's order
+ * among done tasks is the order they finished in.
+ */
 const upsert = (tasks: readonly TeamTask[], task: TeamTask) => {
   const at = tasks.findIndex(t => t.id === task.id)
-  return bound(at === -1 ? [...tasks, task] : tasks.map((t, i) => (i === at ? task : t)))
+  if (at === -1 || (task.status === 'completed' && tasks[at]!.status !== 'completed')) return bound([...tasks.filter(t => t.id !== task.id), task])
+  return bound(tasks.map((t, i) => (i === at ? task : t)))
 }
 
 /** TaskCreate's answer: a new pending task. */

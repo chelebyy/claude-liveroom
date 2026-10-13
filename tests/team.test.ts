@@ -34,7 +34,7 @@ const EMPTY: Team = { members: [], messages: [] }
 
 test('a teammate joins working, named by its team address; a pane teammate has its address as its id', () => {
   let t = joinTeam(EMPTY, { id: 'a1', teammateId: 'scout-2@session-x', model: 'claude-haiku-5-5' }, 10)
-  expect(t.members[0]).toEqual({ id: 'a1', name: 'scout-2', model: 'claude-haiku-5-5', state: 'working', since: 10, isPane: false, sent: 0 })
+  expect(t.members[0]).toEqual({ id: 'a1', name: 'scout-2', model: 'claude-haiku-5-5', state: 'working', since: 10, joinedAt: 10, isPane: false, sent: 0 })
   t = joinTeam(t, { id: 'critic@session-x', teammateId: 'critic@session-x', model: '' }, 20)
   expect(t.members[1]?.isPane).toBe(true)
   // A respawn under the same id replaces the member.
@@ -148,11 +148,11 @@ test('a name that looks like a credential is masked wherever it is kept, and sti
 })
 
 test('a stored team keeps only entries it can read', () => {
-  const member = { id: 'a1', name: 'scout', model: 'm', state: 'idle', since: 5, isPane: false, sent: 2 }
+  const member = { id: 'a1', name: 'scout', model: 'm', state: 'idle', since: 5, joinedAt: 1, isPane: false, sent: 2 }
   const message = { at: 1, from: 'scout', to: LEAD, kind: 'text', text: 'hi', approve: null }
   const t = teamOf({ members: [null, 7, { id: 'a2' }, { ...member, state: 'gone' }, member], messages: [null, { from: 'scout' }, { ...message, kind: 'odd' }, message] })
   expect(t).toEqual({ members: [member], messages: [message] })
-  expect(teamOf({ members: [{ id: 'a3', name: 'x', state: 'working' }] }).members[0]).toEqual({ id: 'a3', name: 'x', model: '', state: 'working', since: 0, isPane: false, sent: 0 })
+  expect(teamOf({ members: [{ id: 'a3', name: 'x', state: 'working' }] }).members[0]).toEqual({ id: 'a3', name: 'x', model: '', state: 'working', since: 0, joinedAt: 0, isPane: false, sent: 0 })
 })
 
 test('the task list: created, updated, owned, deleted, and replaced by a TaskList answer', () => {
@@ -252,6 +252,14 @@ test('a long task list drops the oldest done first, so work in progress stays', 
   let open: TeamTask[] = []
   for (let i = 1; i <= 201; i++) open = addTask(open, { id: String(i), subject: `t${i}` })
   expect([open.length, open[0]?.id]).toEqual([201, '1'])
+})
+
+test('a task that completes moves after those done before it', () => {
+  let ts: TeamTask[] = addTask(addTask([], { id: '1', subject: 'a' }), { id: '2', subject: 'b' })
+  ts = updateTask(updateTask(ts, { taskId: '2', status: 'completed' }), { taskId: '1', status: 'completed' })
+  expect(ts.map(t => t.id)).toEqual(['2', '1'])
+  expect(boardRows(ts, 1).map(t => t.id)).toEqual(['1']) // the newest done
+  expect(updateTask(ts, { taskId: '2', subject: 'b2' }).map(t => t.id)).toEqual(['2', '1']) // a done task edited stays put
 })
 
 test('an assignment notice gives the task its current subject', () => {
@@ -636,6 +644,30 @@ test('a completion notice from no current teammate leaves the board alone', { op
   await $.session.receive({ origin: { kind: 'peer', teammate: 'gone', isVerified: false }, text: '{"type":"task_completed","from":"gone","taskId":"1","taskSubject":"audit auth"}' } as never)
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /^0\/1 done$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the turn receipt counts the teammates the turn spawned', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await $.turn.start({ text: 'form a team', turnId: 'T1' } as never)
+  await spawnTeammate($, 'scout')
+  await spawnTeammate($, 'critic')
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'T1', reason: 'answer' } as never)
+  const ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+  expect(await ui.find({ text: /2 agents/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('an assignment notice from no one in the team leaves the board alone', { options: { language: 'en', openOnStart: false } }, async ($, on) => {
+  engine(on)
+  await $.session.start(START)
+  await $.tool.call({ tool: 'TaskCreate', subject: 'audit auth', description: 'd', tool_use_id: 'k1' } as never)
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'gone', isVerified: false }, text: '{"type":"task_assignment","taskId":"1","subject":"renamed","assignedBy":"gone"}' } as never)
+  await $.session.receive({ origin: { kind: 'peer', teammate: 'team-lead', isVerified: false }, text: '{"type":"task_assignment","taskId":"2","subject":"from the lead","assignedBy":"team-lead"}' } as never)
+  const ui = await $.ui.mount({ ...pane(80), surface: 'terminal' })
+  expect(await ui.find({ type: 'Text', text: /^audit auth$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^from the lead$/ })).toBeDefined()
   await ui.unmount()
 })
 

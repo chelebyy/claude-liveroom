@@ -63,7 +63,7 @@ import type { LanguageOption, T } from './room/i18n'
 import { clockAblative, isKey, langOf, makeT } from './room/i18n'
 import type { RoomView } from './room/state'
 import { roomView } from './room/state'
-import { LEAD, addTask, applyMessage, assignTask, completeTask, isLive, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
+import { LEAD, addTask, applyMessage, assignTask, completeTask, isLead, isLive, isNotice, isTeamMessage, joinTeam, listTasks, memberNamed, memberOf, messageOf, noticeOf, protocolOf, reopen, setState, tasksOf, teamOf, turnEndState, updateTask } from './room/team'
 
 const PANE = 'liveroom'
 const TITLE = 'Liveroom'
@@ -516,10 +516,12 @@ export const register: Register = (on, options) => {
     const id = e.agentId
     const now = await $.clock.now()
     if (!id) {
-      const [t, cards, cost] = await Promise.all([getTurn($), getCards($), costNow($)])
+      const [t, cards, cost, crew] = await Promise.all([getTurn($), getCards($), costNow($), read($, team)])
+      // Teammates have no card, but the turn spawned them all the same.
+      const joined = teamOf(crew).members.filter(m => m.joinedAt >= t.startedAt).length
       const r = receiptOf(t, {
         durationMs: e.durationMs,
-        agentsSince: cards.filter(c => c.spawnedAt >= t.startedAt).length,
+        agentsSince: cards.filter(c => c.spawnedAt >= t.startedAt).length + joined,
         costNow: cost,
         reason: e.reason,
       })
@@ -1505,7 +1507,8 @@ async function noteDelivery($: EngineInterface, sender: string, isVerified: bool
     }
   }
   if (notice?.kind === 'assigned') {
-    const owner = to ? memberOf(was, to)?.name : LEAD
+    // Only from this team: its lead or a current teammate, not a departed one's late notice.
+    const owner = member || isLead(sender) ? (to ? memberOf(was, to)?.name : LEAD) : undefined
     if (owner) await update($, tasks, ts => assignTask(tasksOf(ts), notice.taskId, notice.subject, owner))
   } else if (notice?.kind === 'done') {
     // Only a current teammate's: a departed one's late notice (after a resume, which keeps the tasks) is not this team's.

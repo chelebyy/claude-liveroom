@@ -135,6 +135,8 @@ export type TeamMember = {
   state: MemberState
   /** When it entered its state. */
   since: number
+  /** When its spawn answered: the turn receipt counts it among the turn's agents. */
+  joinedAt: number
   /** It runs in a terminal pane of its own: its turns raise no events here, so its state is inferred. */
   isPane: boolean
   /** Messages it sent. */

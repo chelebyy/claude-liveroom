@@ -31,6 +31,9 @@
 - An assignment notice gives its task the subject it carries, as a completion notice does; a pane teammate may have renamed the task unseen.
 - A teammate addressed by its full id in SendMessage reads as its name, so it is woken and its message shows.
 - A completion notice changes the board only when its sender is a current teammate: a departed one's late notice after a resume is not this team's.
+- The turn receipt counts the teammates a turn spawned among its agents, though they have no card.
+- An assignment notice changes the board only when it comes from the lead or a current teammate.
+- A task that completes moves after those done before it, so the board's newest done and the 200-task bound follow the order tasks finished in.
 - The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.
 
 ## Liveroom 0.3.0
