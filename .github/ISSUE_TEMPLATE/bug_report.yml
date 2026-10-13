@@ -44,5 +44,10 @@ body:
     id: log
     attributes:
       label: Dim "liveroom:" lines from the transcript
-      description: Paste any, and a screenshot if it helps. Check it for anything private first.
+      description: Paste any. Check them for anything private first.
       render: text
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: Drag one in if it helps. Check it for anything private first.
