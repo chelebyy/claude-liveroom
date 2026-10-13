@@ -105,6 +105,9 @@ test('mailbox notices: idle, shutdown and task assignment; a model\'s own words 
   expect(protocolOf('{"type":"plan_approval_response","request_id":"r","approve":true}')).toEqual({ type: 'plan_approval_response', request_id: 'r', approve: true })
   expect(protocolOf('{"type":"idle_notification","from":"scout"}')).toBeNull()
   expect(protocolOf('hello')).toBeNull()
+  // A type every object answers to is not a protocol message: it stays the teammate's JSON words.
+  expect(protocolOf('{"type":"constructor","detail":"analysis"}')).toBeNull()
+  expect(messageOf({ to: 'scout', message: { type: 'toString' } }, LEAD, 1)).toBeNull()
 })
 
 test('a message brings back a teammate whose turn failed, or an in-process one that stopped, not a pane one', () => {

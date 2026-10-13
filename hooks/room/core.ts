@@ -466,7 +466,7 @@ export function openerOf(text: string): { label: string; from: string | null } |
  * A turn opener without the note Claude Code puts before another agent's or session's message
  * ("Another Claude session sent a message:", seen on 2.1.295), so its tag leads as the readers expect.
  */
-export const withoutPeerNote = (text: string) => text.replace(/^\s*Another Claude session sent a message:[ \t]*\n/, '')
+export const withoutPeerNote = (text: string) => text.replace(/^\s*Another Claude session sent a message:[ \t]*\n(?=\s*<)/, '')
 
 export type Tally = Record<string, number>
 

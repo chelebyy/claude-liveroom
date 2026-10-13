@@ -153,7 +153,7 @@ export function messageOf(input: { to?: unknown; message?: unknown; summary?: un
   }
   if (!m || typeof m !== 'object') return null
   const { type, approve } = m as { type?: unknown; approve?: unknown }
-  const kind = typeof type === 'string' ? PROTOCOL[type] : undefined
+  const kind = protocolKind(type)
   // A mailbox spells a shutdown answer as approved or rejected; SendMessage takes it with `approve`.
   const answer = type === 'shutdown_approved' ? true : type === 'shutdown_rejected' ? false : typeof approve === 'boolean' ? approve : null
   return kind ? { at, from, to, kind, text: '', approve: answer } : null
@@ -168,6 +168,9 @@ const PROTOCOL: Readonly<Record<string, TeamMessage['kind']>> = {
   plan_approval_request: 'plan-request',
   plan_approval_response: 'plan-response',
 }
+
+/** A protocol message type's kind: an own entry of the table only, never a name `Object` gives every object. */
+const protocolKind = (type: unknown) => (typeof type === 'string' && Object.prototype.hasOwnProperty.call(PROTOCOL, type) ? PROTOCOL[type] : undefined)
 
 /** The mailbox's own notices (Claude Code 2.1.295's schema), which are never a model's words. */
 const NOTICES = new Set(['idle_notification', 'task_assignment', 'task_completed', 'teammate_terminated'])
@@ -216,7 +219,7 @@ export function jsonOf(text: string): Record<string, unknown> | null {
 /** A protocol message (a shutdown or plan request or answer) in a delivery's text. */
 export function protocolOf(text: string): Record<string, unknown> | null {
   const o = jsonOf(text)
-  return o && typeof o.type === 'string' && o.type in PROTOCOL ? o : null
+  return o && protocolKind(o.type) ? o : null
 }
 
 /** Whether a delivery's text is one of the mailbox's own notices rather than a message. */

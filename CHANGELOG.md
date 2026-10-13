@@ -35,6 +35,7 @@
 - An assignment notice changes the board only when it comes from the lead or a current teammate.
 - A task that completes moves after those done before it, so the board's newest done and the 200-task bound follow the order tasks finished in; a TaskList answer keeps that order for the done tasks the pane saw finish.
 - A log line's sender for a tagged turn opener is masked as a teammate's name is before it is cut to width.
+- A pane teammate's JSON whose `type` is a name every object answers to (`constructor`) shows as its words, not as a protocol message; your own prompt that starts like Claude Code's peer note is logged whole.
 - The default `panels` lists `team` and `tasks` after `agents`; a custom value keeps its own list. In the wide layout the team panel joins the right column and the tasks panel the left.
 
 ## Liveroom 0.3.0
