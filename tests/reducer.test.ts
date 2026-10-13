@@ -153,4 +153,8 @@ test('the agent list ends a teammate it shows ended or no longer lists, and read
   const inProcess = one('idle')
   expect(reduceTeam(inProcess, { type: 'listed', agents: [{ id: 'a1', teammateId: 'scout@x', status: 'running' }], at: 8 }).changes).toEqual([])
   expect(reduceTeam(one('ended'), { type: 'listed', agents: [], at: 8 }).changes).toEqual([])
+  // One that joined while the list was read is not on it yet, and stays as it is.
+  const late = joinTeam(EMPTY, { id: 'critic@x', teammateId: 'critic@x', model: '' }, 8)
+  expect(reduceTeam(late, { type: 'listed', agents: [], at: 8 }).changes).toEqual([])
+  expect(reduceTeam(late, { type: 'listed', agents: [], at: 9 }).changes[0]?.to).toBe('ended')
 })

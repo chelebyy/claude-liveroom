@@ -1331,7 +1331,12 @@ export const register: Register = (on, options) => {
   // Only what was queued counts: a later hook may consume a delivery or rewrite its text.
   on('session.receive', async ($, e, next) => {
     const got = await next(e)
-    if (!('teammate' in e.origin) || got.consumed !== undefined) return got
+    if (!('teammate' in e.origin)) return got
+    // A delivery another hook consumed doesn't count, but a teammate may have left with it.
+    if (got.consumed !== undefined) {
+      await readAgentList($, cfg)
+      return got
+    }
     const ev: Delivery = { type: 'deliver', sender: e.origin.teammate, isVerified: e.origin.isVerified, text: got.text, toId: e.agentId, at: await $.clock.now() }
     const was = teamOf(await read($, team))
     if (isTaskNotice(ev)) await update($, tasks, ts => reduceTasks(tasksOf(ts), ev, was))
@@ -1460,13 +1465,14 @@ async function dropRule($: EngineInterface, id: string) {
  */
 async function readAgentList($: EngineInterface, cfg: Config) {
   if (teamOf(await read($, team)).members.every(m => m.state === 'ended')) return
+  const at = await $.clock.now() // a teammate joining after this isn't on the list yet
   let agents: { id: string; teammateId?: string; status: string }[]
   try {
     agents = (await $.agent.list()).map(a => ({ id: a.id, teammateId: a.teammateId, status: a.status }))
   } catch {
     return
   }
-  await teamEvent($, cfg, { type: 'listed', agents, at: await $.clock.now() })
+  await teamEvent($, cfg, { type: 'listed', agents, at })
 }
 
 /** Whether an agent is still there on the session's list, by a status known to be live; true when the list can't be read. */

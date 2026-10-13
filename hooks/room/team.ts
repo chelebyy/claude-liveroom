@@ -309,9 +309,9 @@ export type Delivery = { type: 'deliver'; sender: string; isVerified: boolean; t
  *   still has it, read for a turn cut short.
  * - `send`: a SendMessage call that went out, from the lead or the loop `fromId`.
  * - `deliver`: a mailbox delivery. `assign`: a TaskUpdate that gave a task still to do to `owner`.
- * - `listed`: the session's agent list, read when the lead's turn ends and after a delivery. A teammate
- *   outside the lead's process may shut down with no notice reaching the lead (Claude Code 2.1.296's
- *   background teammates): the list then shows it ended, or no more.
+ * - `listed`: the session's agent list, read when the lead's turn ends and after a delivery, `at` when
+ *   the read began. A teammate outside the lead's process may shut down with no notice reaching the
+ *   lead: the list then shows it ended, or no more.
  * - `clear`: `/clear` or `/liveroom reset`. `end`: the session ended otherwise.
  */
 export type TeamEvent =
@@ -393,10 +393,11 @@ function teamAfter(team: Team, ev: TeamEvent): Team {
       // A teammate with no live entry on the list (ended, or no more listed) has shut down. One respawned
       // under its address may sit beside its predecessor's ended entry, so any live entry keeps it.
       // Its `running` or `idle` is not read: the list says `running` while a teammate waits.
+      // A teammate that joined while the list was read is not on it yet: the list says nothing of it.
       let next = team
       for (const m of team.members) {
         const isUp = ev.agents.some(x => (x.id === m.id || x.teammateId === m.id) && isLive(x.status))
-        if (m.state !== 'ended' && !isUp) next = move(next, m.id, 'ended', ev.at)
+        if (m.state !== 'ended' && m.joinedAt < ev.at && !isUp) next = move(next, m.id, 'ended', ev.at)
       }
       return next
     }
