@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- A subagent resumed by a message (`SendMessage` to one that had finished) no longer blanks the pane for the rest of the session. Claude Code raises its spawn again under the same id, and Liveroom added a second card for it; two cards with one id drew two clocks under one key, and Claude Code refused the whole pane. The new spawn now replaces the old card, keeping its steps and tokens, and a session that already holds two cards for one agent draws one. Found by 0.5.1's failed-draw line in a live session.
+
 ## Liveroom 0.5.1
 
 - A pane whose drawing fails (a throw, or a drawing past Claude Code's 10-second budget) no longer goes blank without a word: it says `liveroom: the pane failed to draw` and the first line of the reason, and draws again on the next tool call or turn end. Claude Code reports such a failure only for a mod loaded with `--plugin-dir`, so an installed Liveroom showed an empty pane in long sessions with no clue why.
