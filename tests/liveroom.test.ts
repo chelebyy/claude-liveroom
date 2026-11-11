@@ -444,6 +444,11 @@ test('a pane that fails to draw says why, and draws again after the next turn on
   })
   on('ui.status', () => ({ value: undefined }))
   on('turn.complete', () => ({ text: '' }))
+  for (const cols of [40, 120]) {
+    const other = await $.ui.mount({ ...pane(cols), surface: 'terminal' })
+    expect(await other.find({ text: /^liveroom: the pane failed to draw$/ })).toBeDefined()
+    await other.unmount()
+  }
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /^liveroom: the pane failed to draw$/ })).toBeDefined()
   expect(await ui.find({ text: /clock\.now/ })).toBeDefined() // the reason, as the engine words it
