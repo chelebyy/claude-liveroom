@@ -498,3 +498,8 @@ export const adviceLine = (report: string) => {
 }
 
 export const elapsedOf = (c: AgentCard, now: number) => (c.endedAt ?? now) - c.spawnedAt
+
+/** The first line of a drawing failure's message, control characters out, for the fallback pane. */
+export function paneFaultLine(message: string | undefined): string {
+  return (message ?? '').split('\n')[0]!.replace(/[\u0000-\u001f\u007f]/g, ' ').trim()
+}

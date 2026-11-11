@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A pane whose drawing fails (a throw, or a drawing past Claude Code's 10-second budget) no longer goes blank without a word: it says `liveroom: the pane failed to draw` and the first line of the reason, and draws again on the next tool call or turn end. Claude Code reports such a failure only for a mod loaded with `--plugin-dir`, so an installed Liveroom showed an empty pane in long sessions with no clue why.
 - README: the video under "What you see" is Liveroom's own, the full-screen recording the opening animation comes from, in place of Flightdeck's.
 - README: the opening animation is Liveroom's own, from a live session: a Codex hand-off, then a team of two teammates at work. A Liveroom social preview image is in `docs/media/social-preview.png`, to upload under Settings → Social preview.
 - Issue forms for bugs and feature requests, a private security link, and a pull request checklist.

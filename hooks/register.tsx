@@ -40,6 +40,7 @@ import {
   normalizeGate,
   normalizeLog,
   noteTool,
+  paneFaultLine,
   PALETTES,
   SVG_COLORS,
   parseConfig,
@@ -195,6 +196,16 @@ async function isArchitectType($: EngineInterface, cfg: Config, type: string) {
 async function openPane($: EngineInterface) {
   // columns apply when docked beside the transcript, rows when seated inline above the prompt.
   return $.ui.open({ id: PANE, title: TITLE, columns: PANE_COLUMNS, rows: 8 })
+}
+
+// Set when the pane's drawing failed. A write to state the failed drawing had read redraws it;
+// in case it read none, the next tool call or turn end also redraws the pane once.
+let hasPaneFault = false
+
+function healPane($: EngineInterface) {
+  if (!hasPaneFault) return
+  hasPaneFault = false
+  $.ui.invalidate('ui.render')
 }
 
 async function resetAll($: EngineInterface) {
@@ -406,6 +417,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     callLoop.set(e.tool_use_id, e.agentId ?? null)
     const ran = await next(e).finally(() => callLoop.delete(e.tool_use_id))
+    healPane($)
     const didRun = ran.deny === undefined
     if (didRun) await countPluginTool($, e.tool)
     // Settle this call's pending ask, if it had one; skip the write (and the redraw) otherwise.
@@ -521,6 +533,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
+    healPane($)
     if (e.agentId) await endCodexAgent($, e.agentId, e.reason)
     const id = e.agentId
     const now = await $.clock.now()
@@ -1214,6 +1227,19 @@ export const register: Register = (on, options) => {
         </Box>
         {body}
         {svgLanes}
+      </Box>
+    )
+  }).catch(($, e, next) => {
+    // Without this the engine draws an empty pane and, outside --plugin-dir, says nothing.
+    hasPaneFault = true
+    const { Box, Text } = $.ui.resolve(e)
+    const W = Math.max(40, e.props.bodyColumns)
+    const why = next.error.kind === 'timeout' ? tx('drawing took too long') : paneFaultLine(next.error.message) || tx('the drawing failed without a message')
+    return (
+      <Box flexDirection="column" width={W}>
+        <Text color={C.warn} bold>{tx('liveroom: the pane failed to draw')}</Text>
+        <Text color={C.text}>{shorten(why, W * 3)}</Text>
+        <Text dimColor>{tx('It redraws after the next tool call or turn.')}</Text>
       </Box>
     )
   })
