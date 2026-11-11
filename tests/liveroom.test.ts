@@ -19,6 +19,7 @@ import {
   normalizeCard,
   normalizeGate,
   normalizeLog,
+  paneFaultLine,
   titleLines,
   parseConfig,
   prettyModel,
@@ -433,4 +434,34 @@ test("a background architect's hand-back is read behind the engine's note too", 
   const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
   expect(await ui.find({ text: /» Ship it after one more gate test\./ })).toBeDefined()
   await ui.unmount()
+})
+
+test('a pane that fails to draw says why, and draws again after the next turn once it can', async ($, on) => {
+  let isClockDown = true
+  on('clock.now', () => {
+    if (isClockDown) throw new Error('clock down')
+    return { value: 1_000_000 }
+  })
+  on('ui.status', () => ({ value: undefined }))
+  on('turn.complete', () => ({ text: '' }))
+  for (const cols of [40, 120]) {
+    const other = await $.ui.mount({ ...pane(cols), surface: 'terminal' })
+    expect(await other.find({ text: /^liveroom: the pane failed to draw$/ })).toBeDefined()
+    await other.unmount()
+  }
+  const ui = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await ui.find({ text: /^liveroom: the pane failed to draw$/ })).toBeDefined()
+  expect(await ui.find({ text: /clock\.now/ })).toBeDefined() // the reason, as the engine words it
+  expect(await ui.find({ text: /· main$/ })).toBeUndefined()
+  isClockDown = false
+  await $.turn.complete({ answer: '', durationMs: 10, isAborted: false, turnId: 'F1', reason: 'answer' } as never)
+  expect(await ui.find({ text: /· main$/ })).toBeDefined()
+  expect(await ui.find({ text: /failed to draw/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a drawing failure keeps the first line of its message, control characters out', () => {
+  expect(paneFaultLine('TypeError: s.replace is not a function\n    at shorten')).toBe('TypeError: s.replace is not a function')
+  expect(paneFaultLine('bad\u001b[31m red')).toBe('bad [31m red')
+  expect(paneFaultLine(undefined)).toBe('')
 })
