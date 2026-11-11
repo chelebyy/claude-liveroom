@@ -30,10 +30,12 @@ import {
   recordCheck,
   redact,
   settleCheck,
+  spawnCard,
   trimRecent,
+  uniqueCards,
   startConsult,
 } from '../hooks/core'
-import type { Check } from '../types'
+import type { AgentCard, Check } from '../types'
 
 // ---------------------------------------------------------------- pure behaviour
 
@@ -464,4 +466,32 @@ test('a drawing failure keeps the first line of its message, control characters 
   expect(paneFaultLine('TypeError: s.replace is not a function\n    at shorten')).toBe('TypeError: s.replace is not a function')
   expect(paneFaultLine('bad\u001b[31m red')).toBe('bad [31m red')
   expect(paneFaultLine(undefined)).toBe('')
+})
+
+test('a resumed subagent keeps one card: its new spawn replaces the old one and keeps its counts', () => {
+  const card = (id: string, extra: Partial<AgentCard> = {}) => ({ ...normalizeCard({ id }), ...extra })
+  const old = [card('a', { status: 'done', steps: 4, out: 900, ctx: 5000 }), card('b')]
+  const next = spawnCard(old, card('a', { spawnedAt: 50 }))
+  expect(next.map(c => c.id)).toEqual(['b', 'a'])
+  expect(next[1]).toMatchObject({ status: 'running', spawnedAt: 50, steps: 4, out: 900, ctx: 5000 })
+  expect(uniqueCards([card('a', { steps: 1 }), card('b'), card('a', { steps: 2 })]).map(c => [c.id, c.steps])).toEqual([['b', 0], ['a', 2]])
+})
+
+test('a subagent resumed under its id draws once, as a card and as a lane', async ($, on) => {
+  engine(on)
+  let n = 0
+  on('agent.spawn', (_$, e) => ({ model: 'claude-sonnet-5-5', agentId: e.description === 'again' ? 'r1' : `r${++n}` }))
+  await $.turn.start({ text: 'go', turnId: 'R1' })
+  await $.agent.spawn(spawn('general-purpose', 'first look'))
+  await $.agent.spawn(spawn('general-purpose', 'again'))
+  const cardsUi = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await cardsUi.find({ text: /failed to draw/ })).toBeUndefined()
+  expect(await cardsUi.find({ text: /· 1 running · 1 total$/ })).toBeDefined() // the resumed card took the old one's place
+  await cardsUi.unmount()
+  for (const d of ['two', 'three', 'four']) await $.agent.spawn(spawn('general-purpose', `task ${d}`))
+  await $.agent.spawn(spawn('general-purpose', 'again'))
+  const lanesUi = await $.ui.mount({ ...pane(64), surface: 'terminal' })
+  expect(await lanesUi.find({ text: /failed to draw/ })).toBeUndefined()
+  expect(await lanesUi.find({ text: /4 total/ })).toBeDefined()
+  await lanesUi.unmount()
 })

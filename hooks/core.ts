@@ -409,6 +409,22 @@ export const applyStep = (c: AgentCard, s: { model: string; usage: StepUsage; st
   }
 }
 
+/**
+ * One card per agent. A message can resume a finished subagent under its id, and the spawn
+ * fires again; two cards with one id draw two clocks under one key, which the pane refuses.
+ * The last card of each id stays, where it was.
+ */
+export const uniqueCards = (cards: AgentCard[]): AgentCard[] => {
+  const last = new Map(cards.map((c, i) => [c.id, i]))
+  return cards.filter((c, i) => last.get(c.id) === i)
+}
+
+/** A spawn's card, newest last. A resumed agent's replaces its old one and keeps its steps and tokens. */
+export const spawnCard = (cards: AgentCard[], card: AgentCard): AgentCard[] => {
+  const old = cards.find(c => c.id === card.id)
+  return [...cards.filter(c => c.id !== card.id), old ? { ...card, steps: old.steps, out: old.out, ctx: old.ctx } : card]
+}
+
 export const noteTool = (c: AgentCard, n: ToolNote): AgentCard => ({ ...c, tools: [...c.tools, n].slice(-3) })
 
 export const stepLoop = (loops: Loop[], id: string, at: number): Loop[] => {
